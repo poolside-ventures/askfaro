@@ -1,0 +1,88 @@
+"""On-device execution via the bundled Rust core (`faro._core`).
+
+The core reports which namespaces it can run via `free_tools()` — that capability
+list is the routing signal, not the catalog's pricing flag. A namespace the core
+can run executes here with no network call, no API key, and no credit charge.
+
+Local results are passed back through the same `wrap_tool_response` / `build_error`
+core builders the backend uses, so the envelope is byte-identical to a remote call.
+"""
+
+from __future__ import annotations
+
+import json
+from functools import lru_cache
+
+from faro.errors import LocalUnavailableError
+
+try:
+    from faro import _core as faro_core  # native extension bundled in this package
+except ImportError:  # pragma: no cover - exercised only if the native build is absent
+    faro_core = None
+
+
+def core_available() -> bool:
+    """True if the embedded core is importable in this environment."""
+    return faro_core is not None
+
+
+def core_version() -> str | None:
+    return faro_core.__version__ if faro_core is not None else None
+
+
+@lru_cache(maxsize=1)
+def local_namespaces() -> frozenset[str]:
+    """Namespaces the embedded core can execute on-device (cached)."""
+    if faro_core is None:
+        return frozenset()
+    return frozenset(faro_core.free_tools())
+
+
+def can_run_local(namespace: str) -> bool:
+    return faro_core is not None and namespace in local_namespaces()
+
+
+def run_local(namespace: str, tool: str, arguments: dict | None) -> dict:
+    """Execute `namespace/tool` in the embedded core and return the canonical
+    envelope. The `tool` becomes the core's `operation`; free tools dispatch on it.
+
+    Raises LocalUnavailableError if the core is missing or can't run the namespace.
+    """
+    if faro_core is None:
+        raise LocalUnavailableError(
+            "The embedded Faro core (faro_core) is not installed. "
+            "Install faro-sdk with its core wheel to run tools on-device."
+        )
+    if namespace not in local_namespaces():
+        raise LocalUnavailableError(
+            f"Namespace {namespace!r} cannot run on-device "
+            f"(the core runs: {', '.join(sorted(local_namespaces()))})."
+        )
+
+    intent = {**(arguments or {}), "operation": tool}
+    raw = json.loads(faro_core.execute_free_tool(namespace, json.dumps(intent)))
+
+    skill = f"{namespace}.{tool}"
+    # Free tools charge nothing; stamp it so meta matches a remote free-tool call.
+    meta_json = json.dumps({"credits_charged": 0})
+
+    if raw.get("status") == "success":
+        body = raw.get("result") or {}
+        data = body.get("data")
+        summary = body.get("summary")
+        return json.loads(
+            faro_core.wrap_tool_response(skill, json.dumps(data), summary, meta_json, None, None)
+        )
+
+    err = raw.get("error") or {}
+    return json.loads(
+        faro_core.build_error(
+            skill,
+            err.get("code", "error"),
+            err.get("message", "tool failed"),
+            bool(err.get("retryable", False)),
+            meta_json,
+            None,
+            None,
+        )
+    )
