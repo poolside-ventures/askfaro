@@ -11,7 +11,7 @@ jobs:
     name: Rust tests (faro-core-free)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test -p faro-core-free
 
@@ -19,7 +19,7 @@ jobs:
     name: Python tests (askfaro)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
