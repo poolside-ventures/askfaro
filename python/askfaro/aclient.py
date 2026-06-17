@@ -24,20 +24,19 @@ from typing import Optional
 from askfaro.client import (
     DEFAULT_BASE_URL,
     SKILL_AGENT_URL,
-    _MODES,
     _split,
 )
 from askfaro.errors import FaroError, RemoteError
-from askfaro.local import can_run_local, run_local
+from askfaro.local import can_run_local, local_namespaces, run_local
 from askfaro.result import InvokeResult, SearchHit
 
 
 class AsyncFaro:
-    """Async counterpart of `Faro` with the identical routing and surface.
+    """Async counterpart of `Faro` with the identical surface.
 
     Same constructor and semantics as `Faro`; the only difference is that the
-    network methods (`search`, `describe`, `browse`, remote `invoke`, `run`) are
-    coroutines. On-device `invoke()` runs in the synchronous embedded core.
+    network methods (`search`, `describe`, `browse`, `run`) are coroutines.
+    On-device `invoke()` runs in the synchronous embedded core (no await needed).
     """
 
     def __init__(
@@ -45,16 +44,11 @@ class AsyncFaro:
         api_key: Optional[str] = None,
         *,
         base_url: str = DEFAULT_BASE_URL,
-        mode: str = "auto",
         timeout: float = 30.0,
     ):
-        if mode not in _MODES:
-            raise FaroError(f"mode must be one of {_MODES}, got {mode!r}.", "validation_error")
         self._api_key = api_key or os.environ.get("FARO_API_KEY")
         self._base_url = base_url.rstrip("/")
-        self.mode = mode
         self._timeout = timeout
-        self._http = None  # authed backend transport; created on first remote call
         self._discovery_http = None  # public discovery endpoints; no key required
         self._skill_http = None  # skill agent (run); created on first run()
 
@@ -89,7 +83,7 @@ class AsyncFaro:
         limit: int = 10,
         category: str | None = None,
     ) -> list[SearchHit]:
-        """Find skills/tools by intent. Hybrid lexical + semantic search over the
+        """Find skills by intent. Hybrid lexical + semantic search over the
         public catalog. No API key required. See `Faro.search`."""
         if not query or not query.strip():
             raise FaroError("search(query) needs a non-empty query.", "validation_error")
@@ -113,28 +107,23 @@ class AsyncFaro:
 
     # ---- invocation ----------------------------------------------------------
 
-    async def invoke(
-        self, tool: str, arguments: dict | None = None, *, mode: str | None = None
-    ) -> InvokeResult:
-        """Invoke `namespace/tool`, returning a normalized InvokeResult.
-
-        On-device tools run in the synchronous embedded core (no await needed);
-        remote tools are awaited over the network. See `Faro.invoke`.
+    async def invoke(self, tool: str, arguments: dict | None = None) -> InvokeResult:
+        """Run an on-device free tool in the embedded core: no API key, no network,
+        no credits. The core is in-process so there is no real I/O to await, but
+        this stays a coroutine for a uniform async surface. Only the core's free
+        tools are invocable; anything remote/paid is a skill: use `run()`.
+        See `Faro.invoke`.
         """
-        eff_mode = mode or self.mode
-        if eff_mode not in _MODES:
-            raise FaroError(f"mode must be one of {_MODES}, got {eff_mode!r}.", "validation_error")
-
         namespace, name = _split(tool)
-
-        if eff_mode == "remote":
-            return await self._invoke_remote(namespace, name, arguments)
-        if eff_mode == "local":
-            return InvokeResult(run_local(namespace, name, arguments), local=True)
-        # auto
-        if can_run_local(namespace):
-            return InvokeResult(run_local(namespace, name, arguments), local=True)
-        return await self._invoke_remote(namespace, name, arguments)
+        if not can_run_local(namespace):
+            local = ", ".join(sorted(local_namespaces())) or "none in this build"
+            raise FaroError(
+                f"{tool!r} is not an on-device tool, so it can't be invoke()d. "
+                f"invoke() runs only the embedded core's free tools ({local}). "
+                f"Reach remote capabilities with run(skill, intent).",
+                "validation_error",
+            )
+        return InvokeResult(run_local(namespace, name, arguments), local=True)
 
     # ---- skills --------------------------------------------------------------
 
@@ -181,18 +170,6 @@ class AsyncFaro:
             )
         return self._result_or_raise(resp)
 
-    async def _invoke_remote(
-        self, namespace: str, name: str, arguments: dict | None
-    ) -> InvokeResult:
-        client = self._ensure_http()
-        try:
-            resp = await client.post(
-                f"/invoke/{namespace}/{name}", json={"arguments": arguments or {}}
-            )
-        except Exception as e:  # httpx network/timeout errors
-            raise RemoteError(f"Network error calling Faro: {e}", "network_error", retryable=True)
-        return self._result_or_raise(resp)
-
     @staticmethod
     def _result_or_raise(resp) -> InvokeResult:
         if resp.is_success:
@@ -207,23 +184,6 @@ class AsyncFaro:
     # ---- transports ----------------------------------------------------------
     # Async clients are constructed lazily; building an httpx.AsyncClient does not
     # require a running loop, so the constructor stays sync.
-
-    def _ensure_http(self):
-        if self._http is None:
-            import httpx
-
-            if not self._api_key:
-                raise FaroError(
-                    "An API key is required for backend calls. Pass api_key=... or set FARO_API_KEY. "
-                    "(Tools the core runs on-device need no key.)",
-                    "auth_required",
-                )
-            self._http = httpx.AsyncClient(
-                base_url=self._base_url,
-                headers={"Authorization": f"Bearer {self._api_key}"},
-                timeout=self._timeout,
-            )
-        return self._http
 
     def _ensure_discovery_http(self):
         if self._discovery_http is None:
@@ -266,7 +226,7 @@ class AsyncFaro:
     # ---- lifecycle -----------------------------------------------------------
 
     async def aclose(self) -> None:
-        for attr in ("_http", "_discovery_http", "_skill_http"):
+        for attr in ("_discovery_http", "_skill_http"):
             client = getattr(self, attr)
             if client is not None:
                 await client.aclose()

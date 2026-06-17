@@ -17,7 +17,6 @@ DEFAULT_BASE_URL = "https://api.askfaro.com"
 # Skills run on Faro's hosted skill agent (intent in, envelope out), not the core
 # API. It is Faro infrastructure, not self-hostable, so this is fixed.
 SKILL_AGENT_URL = "https://skill.askfaro.com"
-_MODES = ("auto", "local", "remote")
 
 
 def _split(tool: str) -> tuple[str, str]:
@@ -34,15 +33,14 @@ def _split(tool: str) -> tuple[str, str]:
 
 
 class Faro:
-    """Faro client with local-first routing.
+    """Faro client.
 
-    Tools the embedded core can run (see `local_namespaces()`) execute on-device:
-    no API key, no network, no credits. Everything else goes to the backend.
-
-    mode:
-      - "auto"   (default) run on-device when possible, else call the backend
-      - "local"  on-device only; raise if the core can't run the namespace
-      - "remote" always call the backend
+    Two ways to reach a capability:
+      - `invoke(tool)` runs an on-device free tool (calc, units, ...) in the
+        embedded core: no API key, no network, no credits.
+      - `run(skill, intent)` runs a skill on Faro's hosted skill agent, which
+        selects the underlying tools and bills your account. This is the path for
+        everything remote/paid; raw remote tools are not directly callable.
     """
 
     def __init__(
@@ -50,16 +48,11 @@ class Faro:
         api_key: Optional[str] = None,
         *,
         base_url: str = DEFAULT_BASE_URL,
-        mode: str = "auto",
         timeout: float = 30.0,
     ):
-        if mode not in _MODES:
-            raise FaroError(f"mode must be one of {_MODES}, got {mode!r}.", "validation_error")
         self._api_key = api_key or os.environ.get("FARO_API_KEY")
         self._base_url = base_url.rstrip("/")
-        self.mode = mode
         self._timeout = timeout
-        self._http = None  # lazily created only if a remote (authed) call happens
         self._discovery_http = None  # discovery endpoints; no key required
         self._skill_http = None  # skill agent (run); created on first run()
 
@@ -79,8 +72,8 @@ class Faro:
         return core_version()
 
     # ---- discovery -----------------------------------------------------------
-    # The two ways to reach a capability: invoke one you already know (below), or
-    # discover one from intent. Discovery needs no API key (a key is sent if set).
+    # Discover a skill from intent, then run() it. Discovery needs no API key
+    # (a key is sent if set).
 
     def search(
         self,
@@ -89,12 +82,12 @@ class Faro:
         limit: int = 10,
         category: str | None = None,
     ) -> list[SearchHit]:
-        """Find skills/tools by intent — the "describe what you want, get a
-        suitable skill" path. Hybrid lexical + semantic search over the public
-        catalog, ranked by relevance. No API key required.
+        """Find skills by intent — the "describe what you want, get a suitable
+        skill" path. Hybrid lexical + semantic search over the public catalog,
+        ranked by relevance. No API key required.
 
-        Each `SearchHit` carries enough to invoke without a second call: `.id`
-        (hand it to `invoke()`), `.input_schema`, and `.pricing`.
+        Each `SearchHit` carries enough to run without a second call: `.id` (hand
+        it to `run()`), `.input_schema`, and `.pricing`.
 
             for hit in faro.search("transcribe an audio file"):
                 print(hit.id, hit.short_description, hit.pricing)
@@ -128,32 +121,30 @@ class Faro:
 
     # ---- invocation ----------------------------------------------------------
 
-    def invoke(self, tool: str, arguments: dict | None = None, *, mode: str | None = None) -> InvokeResult:
-        """Invoke `namespace/tool`, returning a normalized InvokeResult.
+    def invoke(self, tool: str, arguments: dict | None = None) -> InvokeResult:
+        """Run an on-device free tool `namespace/tool` (e.g. `calc/evaluate`) in
+        the embedded core: no API key, no network, no credits. Returns a normalized
+        InvokeResult; tool-level failures come back with `.ok == False`.
 
-        Tool-level failures come back as a result with `.ok == False` (same on both
-        paths). Auth / network / config problems raise FaroError.
+        Only the embedded core's free tools are invocable. Anything remote/paid is a
+        skill: use `run(skill, intent)`.
         """
-        eff_mode = mode or self.mode
-        if eff_mode not in _MODES:
-            raise FaroError(f"mode must be one of {_MODES}, got {eff_mode!r}.", "validation_error")
-
         namespace, name = _split(tool)
-
-        if eff_mode == "remote":
-            return self._invoke_remote(namespace, name, arguments)
-        if eff_mode == "local":
-            return InvokeResult(run_local(namespace, name, arguments), local=True)
-        # auto
-        if can_run_local(namespace):
-            return InvokeResult(run_local(namespace, name, arguments), local=True)
-        return self._invoke_remote(namespace, name, arguments)
+        if not can_run_local(namespace):
+            local = ", ".join(sorted(local_namespaces())) or "none in this build"
+            raise FaroError(
+                f"{tool!r} is not an on-device tool, so it can't be invoke()d. "
+                f"invoke() runs only the embedded core's free tools ({local}). "
+                f"Reach remote capabilities with run(skill, intent).",
+                "validation_error",
+            )
+        return InvokeResult(run_local(namespace, name, arguments), local=True)
 
     # ---- skills --------------------------------------------------------------
-    # `invoke()` calls a single tool. For anything that isn't an on-device core
-    # tool, the path is a SKILL: the skill agent selects operations, calls the
-    # underlying tools, and bills your account. Raw remote tools are not directly
-    # invocable (the API returns "use the skill layer").
+    # `invoke()` runs an on-device free tool. Everything remote/paid is a SKILL:
+    # the skill agent selects operations, calls the underlying tools, and bills
+    # your account. Raw remote tools are not directly invocable (the API returns
+    # "use the skill layer").
 
     def run(
         self,
@@ -213,40 +204,6 @@ class Faro:
         retryable = resp.status_code >= 500 or resp.status_code == 429
         raise RemoteError(str(detail), "remote_error", status=resp.status_code, retryable=retryable)
 
-    def _invoke_remote(self, namespace: str, name: str, arguments: dict | None) -> InvokeResult:
-        client = self._ensure_http()
-        try:
-            resp = client.post(f"/invoke/{namespace}/{name}", json={"arguments": arguments or {}})
-        except Exception as e:  # httpx network/timeout errors
-            raise RemoteError(f"Network error calling Faro: {e}", "network_error", retryable=True)
-
-        if resp.is_success:
-            return InvokeResult(resp.json(), local=False)
-
-        try:
-            detail = resp.json().get("detail", resp.text)
-        except Exception:
-            detail = resp.text
-        retryable = resp.status_code >= 500 or resp.status_code == 429
-        raise RemoteError(str(detail), "remote_error", status=resp.status_code, retryable=retryable)
-
-    def _ensure_http(self):
-        if self._http is None:
-            import httpx
-
-            if not self._api_key:
-                raise FaroError(
-                    "An API key is required for backend calls. Pass api_key=... or set FARO_API_KEY. "
-                    "(Tools the core runs on-device need no key.)",
-                    "auth_required",
-                )
-            self._http = httpx.Client(
-                base_url=self._base_url,
-                headers={"Authorization": f"Bearer {self._api_key}"},
-                timeout=self._timeout,
-            )
-        return self._http
-
     def _ensure_discovery_http(self):
         """A client for the public discovery endpoints — no key required (the
         bearer is attached only if one is set)."""
@@ -290,7 +247,7 @@ class Faro:
     # ---- lifecycle -----------------------------------------------------------
 
     def close(self) -> None:
-        for attr in ("_http", "_discovery_http", "_skill_http"):
+        for attr in ("_discovery_http", "_skill_http"):
             client = getattr(self, attr)
             if client is not None:
                 client.close()

@@ -42,15 +42,35 @@ class InvokeResult:
 
     @property
     def error(self) -> dict | None:
+        """The error block when `status == "failed"`: `{code, message, retryable}`.
+        Tool/skill failures are reported HERE (`.ok is False`), not raised."""
         return self.envelope.get("error")
+
+    @property
+    def needs_input(self) -> dict | None:
+        """Present when `status == "needs_input"`: a clarification, or a budget
+        quote that crossed `confirm_above`. `{question, missing}`. Pair it with
+        `.continuation` to resume."""
+        return self.envelope.get("needs_input")
+
+    @property
+    def continuation(self) -> str | None:
+        """A signed token to resume a quote (`needs_input`) or paginate. Hand it
+        back to `run(..., continuation=token)`."""
+        return self.envelope.get("continuation")
+
+    @property
+    def credits_charged(self):
+        """What this call cost you (0 for on-device / free)."""
+        return self.meta.get("credits_charged")
 
 
 @dataclass(frozen=True, repr=False)
 class SearchHit:
-    """One result from `Faro.search()`: a skill or tool matched to a query.
+    """One result from `Faro.search()`: a skill matched to a query.
 
-    Hits are ranked by relevance and carry enough to invoke without a second
-    round-trip: `id` (what you hand to `invoke()`), `input_schema`, and
+    Hits are ranked by relevance and carry enough to run without a second
+    round-trip: `id` (what you hand to `run()`), `input_schema`, and
     `pricing`. The full backend payload is on `.raw`.
     """
 
@@ -71,7 +91,7 @@ class SearchHit:
 
     @property
     def id(self) -> str | None:
-        """The identifier to hand to `invoke()`: `namespace/tool`, or the skill id."""
+        """The identifier to hand to `run()` (the skill id)."""
         if self.kind == "skill":
             return self.raw.get("skill_id") or self.raw.get("id")
         ns, name = self.raw.get("namespace"), self.raw.get("name")

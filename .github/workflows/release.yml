@@ -13,8 +13,30 @@ on:
   workflow_dispatch:
 
 jobs:
+  contract:
+    name: Live contract checks (gate the release)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Build + install
+        run: |
+          uv venv
+          uv pip install ".[dev]"
+      - name: Live contract tests
+        # Block the publish if the SDK has drifted from the REAL Faro contract.
+        # The authed run() check needs FARO_API_KEY (an unknown-skill probe, $0);
+        # without the secret it skips and the no-key discovery + core checks still
+        # gate. Add the FARO_API_KEY repo secret to make the run() path binding.
+        env:
+          FARO_API_KEY: ${{ secrets.FARO_API_KEY }}
+        run: .venv/bin/pytest -m live -v --tb=short
+
   build-wheels:
     name: Build wheels (${{ matrix.platform.target }})
+    needs: contract
     runs-on: ${{ matrix.platform.runner }}
     strategy:
       fail-fast: false

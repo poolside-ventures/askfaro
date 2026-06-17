@@ -25,17 +25,12 @@ async def test_local_invoke_runs_on_device_without_await_network():
         assert r.data["result"] == 8
 
 
-@respx.mock
-async def test_remote_invoke_awaits_backend():
-    route = respx.post(f"{API}/invoke/weather/current").mock(
-        return_value=httpx.Response(
-            200, json={"status": "success", "result": {"kind": "information", "data": {"temp": 20}}}
-        )
-    )
-    async with AsyncFaro(api_key="faro_test") as faro:
-        r = await faro.invoke("weather/current", {"city": "Paris"}, mode="remote")
-    assert route.called
-    assert r.ok and not r.local and r.data["temp"] == 20
+async def test_invoke_non_core_namespace_raises_pointing_to_run():
+    # invoke() is on-device only; a remote/paid capability points to run().
+    async with AsyncFaro() as faro:
+        with pytest.raises(FaroError) as ei:
+            await faro.invoke("weather/current", {"city": "Paris"})
+    assert "run(" in str(ei.value)
 
 
 @respx.mock

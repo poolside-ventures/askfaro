@@ -2,7 +2,7 @@
 
 import pytest
 
-from askfaro import Faro, LocalUnavailableError
+from askfaro import Faro
 
 
 @pytest.fixture
@@ -64,9 +64,12 @@ def test_tool_failure_returns_failed_envelope_not_raise(faro):
     assert r.error.get("code")
 
 
-def test_mode_local_raises_for_backend_only_namespace(faro):
-    with pytest.raises(LocalUnavailableError):
-        faro.invoke("weather/current", {"city": "Paris"}, mode="local")
+def test_invoke_backend_only_namespace_raises_pointing_to_run(faro):
+    from askfaro import FaroError
+
+    with pytest.raises(FaroError) as ei:
+        faro.invoke("weather/current", {"city": "Paris"})
+    assert "run(" in str(ei.value)
 
 
 def test_invalid_tool_identifier(faro):

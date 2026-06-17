@@ -42,3 +42,9 @@ features = ["pyo3/extension-module"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# Live contract tests hit the real Faro endpoints; they are excluded from the
+# default (offline) run and selected explicitly with `-m live`.
+addopts = "-m 'not live'"
+markers = [
+    "live: exercises the REAL Faro API / skill agent (needs network; FARO_API_KEY for the authed paths). Run with -m live.",
+]

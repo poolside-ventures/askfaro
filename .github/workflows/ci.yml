@@ -30,3 +30,26 @@ jobs:
           uv pip install ".[dev]"
       - name: pytest
         run: .venv/bin/pytest -v --tb=short
+
+  contract:
+    name: Live contract checks (real Faro endpoints)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Build + install
+        run: |
+          uv venv
+          uv pip install ".[dev]"
+      - name: Live contract tests
+        # Exercises the SDK against the REAL API + skill agent, so a contract
+        # drift fails HERE instead of shipping — mocks can't catch that (a mocked
+        # /invoke returning 200 is exactly how the remote-invoke break stayed
+        # green). The authed run() check needs FARO_API_KEY; without it those skip
+        # and the no-key discovery + bundled-core checks still run. The probe is an
+        # unknown skill, so it never bills.
+        env:
+          FARO_API_KEY: ${{ secrets.FARO_API_KEY }}
+        run: .venv/bin/pytest -m live -v --tb=short
