@@ -166,8 +166,6 @@ def test_browse_format_text_returns_manifest_text():
     )
     result = Faro().browse(format="text")
     assert "manifest_text" in result
-    assert "skill_count" in result
-    assert "budget_tokens" in result
     text = result["manifest_text"]
     # All skills appear as callable ids in the text
     assert "web-search:" in text
@@ -188,21 +186,6 @@ def test_browse_format_text_exclude_drops_skills():
     assert "web-search" not in text
     assert "research" not in text
     assert "weather:" in text
-    # skill_count reflects post-exclude count
-    assert result["skill_count"] == 1
-
-
-@respx.mock
-def test_browse_format_text_hard_budget_ceiling():
-    respx.get("https://api.askfaro.com/pcx/manifest").mock(
-        return_value=httpx.Response(200, json=_PCX_MANIFEST)
-    )
-    budget = 20  # very tight — forces ids-only or category shedding
-    result = Faro().browse(budget, format="text")
-    text = result["manifest_text"]
-    # Must fit within budget (chars/4 approximation)
-    assert (len(text) + 3) // 4 <= budget
-    assert result["budget_tokens"] == budget
 
 
 def test_browse_invalid_format_raises():

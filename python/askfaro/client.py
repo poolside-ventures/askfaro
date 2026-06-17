@@ -133,7 +133,7 @@ class Faro:
                 don't want to surface (e.g. duplicates you handle elsewhere) so the
                 budget is spent only on what's shown.
         """
-        from askfaro._browse import budget_to_tier, budget_to_tokens, render_manifest_text
+        from askfaro._browse import budget_to_tier, render_manifest_text
 
         if format not in ("json", "text"):
             raise FaroError(
@@ -148,14 +148,7 @@ class Faro:
             return manifest
 
         excl: frozenset[str] = frozenset(exclude) if exclude else frozenset()
-        token_ceiling = budget_to_tokens(budget)
-        text = render_manifest_text(manifest, token_ceiling, excl)
-        skill_count = sum(
-            1
-            for n in manifest.get("nodes", {}).values()
-            if n.get("skill_id") and n["skill_id"] not in excl
-        )
-        return {"manifest_text": text, "skill_count": skill_count, "budget_tokens": token_ceiling}
+        return {"manifest_text": render_manifest_text(manifest, excl)}
 
     # ---- invocation ----------------------------------------------------------
 
