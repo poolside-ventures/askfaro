@@ -47,9 +47,9 @@ needs the backend and always routes remote.
 
 `faro._core` is the MIT open-source free-tool slice of the Faro core (the
 `faro-core-free` Rust crate): calc, units, phone, astronomy, encoding, datetime,
-timezone, random — plus the canonical envelope builders. The proprietary parts of
-Faro (selection gate, signed continuations, cloud client, billing) are NOT in this
-package; vendor-backed tools run server-side via the API.
+timezone, random, and timer, plus the canonical envelope builders. The proprietary
+parts of Faro (selection gate, signed continuations, cloud client, billing) are NOT
+in this package; vendor-backed tools run server-side via the API.
 
 ## Development
 
