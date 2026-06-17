@@ -13,6 +13,7 @@ mod datetime;
 mod encoding;
 mod phone;
 mod random;
+mod timer;
 mod timezone;
 mod units;
 
@@ -21,7 +22,7 @@ use crate::error::CoreError;
 
 /// Names of the free tools available in this build.
 pub fn available() -> Vec<&'static str> {
-    vec!["astronomy", "calc", "datetime", "encoding", "phone", "random", "timezone", "units"]
+    vec!["astronomy", "calc", "datetime", "encoding", "phone", "random", "timer", "timezone", "units"]
 }
 
 /// Execute a free tool by name with JSON `params`, returning a `SkillResult`
@@ -36,6 +37,7 @@ pub fn execute(name: &str, params: serde_json::Value) -> SkillResult {
         "encoding" => encoding::run(params),
         "phone" => phone::run(params),
         "random" => random::run(params),
+        "timer" => timer::run(params),
         "timezone" => timezone::run(params),
         "units" => units::run(params),
         other => Err(CoreError::UnknownTool(other.to_string())),
