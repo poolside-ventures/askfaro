@@ -79,6 +79,15 @@ clarification, budget quote — comes back on the result so you handle all outco
 in one place. Cost ceilings: `max_credits` is a hard cap (the run aborts rather
 than exceed it); `confirm_above` is the soft ceiling that returns the quote above.
 
+**Safe retries.** Pass `idempotency_key` on any `run()` you might retry. A repeat of
+the same key replays the prior **successful** result instead of running — and
+charging — again; a failed run releases the key so a retry actually re-runs. Scope a
+fresh key per distinct logical call.
+
+```python
+faro.run("image", "a red bicycle", idempotency_key="order-42")   # retry-safe
+```
+
 ## Async
 
 For server-side consumers on an event loop (e.g. an async FastAPI backend),

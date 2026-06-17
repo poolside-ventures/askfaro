@@ -50,17 +50,28 @@ def test_run_string_intent_is_wrapped_as_prompt():
 
 
 @respx.mock
-def test_run_forwards_ceilings_and_continuation():
+def test_run_forwards_ceilings_continuation_and_idempotency_key():
     route = respx.post(f"{SKILL}/skills/image/run").mock(
         return_value=httpx.Response(200, json=_ok_envelope())
     )
     Faro(api_key="faro_test").run(
-        "image", "x", max_credits=100, confirm_above=50, continuation="f1.abc.def"
+        "image", "x", max_credits=100, confirm_above=50, continuation="f1.abc.def",
+        idempotency_key="order-42",
     )
     sent = json.loads(route.calls.last.request.content)
     assert sent["max_credits"] == 100
     assert sent["confirm_above"] == 50
     assert sent["continuation"] == "f1.abc.def"
+    assert sent["idempotency_key"] == "order-42"
+
+
+@respx.mock
+def test_run_omits_idempotency_key_when_unset():
+    route = respx.post(f"{SKILL}/skills/image/run").mock(
+        return_value=httpx.Response(200, json=_ok_envelope())
+    )
+    Faro(api_key="faro_test").run("image", "x")
+    assert "idempotency_key" not in json.loads(route.calls.last.request.content)
 
 
 @respx.mock

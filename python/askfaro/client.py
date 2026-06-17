@@ -154,6 +154,7 @@ class Faro:
         max_credits: float | None = None,
         confirm_above: float | None = None,
         continuation: str | None = None,
+        idempotency_key: str | None = None,
     ) -> InvokeResult:
         """Run a skill end-to-end: intent in, normalized envelope out.
 
@@ -162,8 +163,13 @@ class Faro:
         soft `confirm_above` ceiling comes back with `.status == "needs_input"`
         (a quote) rather than spending. Requires an API key.
 
+        Pass `idempotency_key` for any run you might retry: a repeat of the same key
+        replays the prior successful result instead of running (and charging) again.
+        Use a fresh key per distinct logical call.
+
             faro.run("image", {"prompt": "a red bicycle"})
             faro.run("image", "a red bicycle")            # shorthand
+            faro.run("image", "a red bicycle", idempotency_key="order-42")
         """
         if not skill or not isinstance(skill, str):
             raise FaroError("run(skill, intent) needs a skill id.", "validation_error")
@@ -187,6 +193,8 @@ class Faro:
             payload["confirm_above"] = confirm_above
         if continuation is not None:
             payload["continuation"] = continuation
+        if idempotency_key is not None:
+            payload["idempotency_key"] = idempotency_key
 
         client = self._ensure_skill_http()
         try:
