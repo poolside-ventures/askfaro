@@ -20,28 +20,40 @@ faro = Faro()                                    # no key needed for on-device t
 r = faro.invoke("calc/evaluate", {"expression": "2 + 2 * 3"})
 assert r.ok and r.local and r.data["result"] == 8
 
-faro = Faro(api_key="faro_...")                  # a key enables backend fallback
-faro.invoke("weather/current", {"city": "Paris"})    # -> backend (vendor-backed)
+# Anything beyond the on-device core is a *skill*: the skill agent picks the
+# tools, runs them, enforces your budget, and bills your account.
+faro = Faro(api_key="faro_...", skill_url="https://<your-skill-agent>")
+faro.run("image", {"prompt": "a red bicycle"})
 ```
 
 The Rust core is compiled into this package (`faro._core`), so a single
 `pip install askfaro` is all you need — there is no separate core package to
 install.
 
-## Routing
+## invoke() vs run()
 
-`Faro(mode=...)` (per-call override on `invoke(..., mode=...)`):
+Two execution methods:
+
+- **`invoke("namespace/tool")`** calls one tool. Use it for the **on-device
+  core** (calc, units, phone, …), which runs locally with no key and no network.
+  Raw *remote* tools are not directly callable (the API answers "use the skill
+  layer"), so for anything vendor-backed, use `run()`.
+- **`run("skill", intent)`** runs a **skill**: the skill agent selects the
+  operations, calls the underlying tools, enforces your budget, and bills your
+  account. This is the path for every capability that isn't an on-device tool.
+  It needs an API key and a skill-agent URL (`skill_url=` / `FARO_SKILL_URL`).
+
+`invoke()` routing (`mode=`, per-call override on `invoke(..., mode=...)`):
 
 | mode | behavior |
 |------|----------|
-| `auto` (default) | run on-device when the core can; otherwise call the backend |
+| `auto` (default) | run on-device when the core can; otherwise call the API |
 | `local` | on-device only; raise `LocalUnavailableError` if the core can't run it |
-| `remote` | always call the backend |
+| `remote` | always call the API (succeeds only for tools the API still exposes directly) |
 
-What can run on-device is the bundled core's own capability list
-(`Faro.local_namespaces()`), not a pricing flag — it grows as more tools are
-ported into the core. A vendor-backed tool (weather, web search, …) physically
-needs the backend and always routes remote.
+What runs on-device is the bundled core's capability list
+(`Faro.local_namespaces()`), not a pricing flag; it grows as more tools are
+ported into the core.
 
 ## Discovery
 
@@ -61,6 +73,11 @@ best = faro.search("transcribe an audio file")[0]
 
 # Full input schema + pricing for one candidate:
 faro.describe("audio-intelligence/transcribe")
+
+# A skill hit's .id runs via the skill agent; a tool hit's .id is for invoke():
+hit = faro.search("generate an image")[0]
+if hit.kind == "skill":
+    faro.run(hit.id, {"prompt": "a red bicycle"})
 
 # Browse instead of search: a progressive-context (pcx) map you expand one branch
 # at a time, sized for small / on-device context windows:

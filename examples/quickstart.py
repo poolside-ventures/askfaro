@@ -34,3 +34,9 @@ try:
     print("search:", ", ".join(h.id for h in hits) or "(no matches)")
 except Exception as e:  # offline / no network
     print("search: skipped:", e)
+
+# Run a skill (any vendor-backed capability). Needs an API key and a skill-agent
+# URL; the agent picks the tools, runs them, and bills your account:
+#   faro = Faro(api_key="faro_...", skill_url="https://<your-skill-agent>")
+#   r = faro.run("image", {"prompt": "a red bicycle"})
+#   print(r.status, r.data)

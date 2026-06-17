@@ -14,6 +14,10 @@ from faro.local import (
 from faro.result import InvokeResult, SearchHit
 
 DEFAULT_BASE_URL = "https://api.askfaro.com"
+# Skills run on the skill agent (a separate service: intent in, envelope out), not
+# the core API. There is no stable public default yet, so it must be configured
+# (skill_url=... or FARO_SKILL_URL) until one is wired.
+DEFAULT_SKILL_URL = None
 _MODES = ("auto", "local", "remote")
 
 
@@ -47,6 +51,7 @@ class Faro:
         api_key: Optional[str] = None,
         *,
         base_url: str = DEFAULT_BASE_URL,
+        skill_url: Optional[str] = None,
         mode: str = "auto",
         timeout: float = 30.0,
     ):
@@ -54,10 +59,13 @@ class Faro:
             raise FaroError(f"mode must be one of {_MODES}, got {mode!r}.", "validation_error")
         self._api_key = api_key or os.environ.get("FARO_API_KEY")
         self._base_url = base_url.rstrip("/")
+        _skill = skill_url or os.environ.get("FARO_SKILL_URL") or DEFAULT_SKILL_URL
+        self._skill_url = _skill.rstrip("/") if _skill else None
         self.mode = mode
         self._timeout = timeout
         self._http = None  # lazily created only if a remote (authed) call happens
         self._discovery_http = None  # discovery endpoints; no key required
+        self._skill_http = None  # skill agent (run); created on first run()
 
     # ---- capability introspection -------------------------------------------
 
@@ -145,6 +153,78 @@ class Faro:
             return InvokeResult(run_local(namespace, name, arguments), local=True)
         return self._invoke_remote(namespace, name, arguments)
 
+    # ---- skills --------------------------------------------------------------
+    # `invoke()` calls a single tool. For anything that isn't an on-device core
+    # tool, the path is a SKILL: the skill agent selects operations, calls the
+    # underlying tools, and bills your account. Raw remote tools are not directly
+    # invocable (the API returns "use the skill layer").
+
+    def run(
+        self,
+        skill: str,
+        intent: dict | str,
+        *,
+        max_credits: float | None = None,
+        confirm_above: float | None = None,
+        continuation: str | None = None,
+    ) -> InvokeResult:
+        """Run a skill end-to-end: intent in, normalized envelope out.
+
+        `intent` is a dict the skill understands, or a plain string (treated as
+        `{"prompt": ...}`). Returns an InvokeResult; a run that would cross the
+        soft `confirm_above` ceiling comes back with `.status == "needs_input"`
+        (a quote) rather than spending. Requires an API key and a configured
+        skill-agent URL (`skill_url=` / `FARO_SKILL_URL`).
+
+            faro.run("image", {"prompt": "a red bicycle"})
+            faro.run("image", "a red bicycle")            # shorthand
+        """
+        if not skill or not isinstance(skill, str):
+            raise FaroError("run(skill, intent) needs a skill id.", "validation_error")
+        if isinstance(intent, str):
+            intent = {"prompt": intent}
+        if not isinstance(intent, dict):
+            raise FaroError(
+                'run() intent must be a dict or a string, e.g. {"prompt": "..."}.',
+                "validation_error",
+            )
+        if not self._skill_url:
+            raise FaroError(
+                "No skill-agent URL configured. Skills run on the Faro skill agent, "
+                "not the core API. Pass skill_url=... or set FARO_SKILL_URL. "
+                "(On-device tools via invoke() need no skill URL.)",
+                "config_error",
+            )
+        if not self._api_key:
+            raise FaroError(
+                "An API key is required to run skills. Pass api_key=... or set FARO_API_KEY.",
+                "auth_required",
+            )
+
+        payload: dict = {"intent": intent}
+        if max_credits is not None:
+            payload["max_credits"] = max_credits
+        if confirm_above is not None:
+            payload["confirm_above"] = confirm_above
+        if continuation is not None:
+            payload["continuation"] = continuation
+
+        client = self._ensure_skill_http()
+        try:
+            resp = client.post(f"/skills/{skill}/run", json=payload)
+        except Exception as e:  # httpx network/timeout errors
+            raise RemoteError(
+                f"Network error calling the Faro skill agent: {e}", "network_error", retryable=True
+            )
+        if resp.is_success:
+            return InvokeResult(resp.json(), local=False)
+        try:
+            detail = resp.json().get("detail", resp.text)
+        except Exception:
+            detail = resp.text
+        retryable = resp.status_code >= 500 or resp.status_code == 429
+        raise RemoteError(str(detail), "remote_error", status=resp.status_code, retryable=retryable)
+
     def _invoke_remote(self, namespace: str, name: str, arguments: dict | None) -> InvokeResult:
         client = self._ensure_http()
         try:
@@ -193,6 +273,17 @@ class Faro:
             )
         return self._discovery_http
 
+    def _ensure_skill_http(self):
+        if self._skill_http is None:
+            import httpx
+
+            self._skill_http = httpx.Client(
+                base_url=self._skill_url,
+                headers={"Authorization": f"Bearer {self._api_key}"},
+                timeout=self._timeout,
+            )
+        return self._skill_http
+
     def _get(self, path: str, params: dict | None = None):
         client = self._ensure_discovery_http()
         try:
@@ -211,7 +302,7 @@ class Faro:
     # ---- lifecycle -----------------------------------------------------------
 
     def close(self) -> None:
-        for attr in ("_http", "_discovery_http"):
+        for attr in ("_http", "_discovery_http", "_skill_http"):
             client = getattr(self, attr)
             if client is not None:
                 client.close()
