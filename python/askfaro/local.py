@@ -42,9 +42,30 @@ def can_run_local(namespace: str) -> bool:
     return faro_core is not None and namespace in local_namespaces()
 
 
-def run_local(namespace: str, tool: str, arguments: dict | None) -> dict:
-    """Execute `namespace/tool` in the embedded core and return the canonical
-    envelope. The `tool` becomes the core's `operation`; free tools dispatch on it.
+def split_skill_id(skill: str) -> tuple[str, str | None]:
+    """Map a catalog skill id to (namespace, operation) for an in-core call.
+
+    Catalog skill ids are either a bare namespace (`astronomy`) or
+    `namespace.operation` (`calc.evaluate`). The NAMESPACE is the routing key for
+    on-device execution; the operation, when present, is what the core's free tool
+    dispatches on (a bare namespace lets the tool pick its default operation).
+
+        split_skill_id("astronomy")      # ("astronomy", None)
+        split_skill_id("calc.evaluate")  # ("calc", "evaluate")
+    """
+    sep = "/" if "/" in skill else ("." if "." in skill else None)
+    if sep is None:
+        return skill, None
+    namespace, operation = skill.split(sep, 1)
+    return namespace, (operation or None)
+
+
+def run_local(namespace: str, operation: str | None, arguments: dict | None) -> dict:
+    """Execute a free tool in the embedded core and return the canonical envelope.
+
+    `operation`, when given, becomes the core's `operation` and the free tool
+    dispatches on it; when None, the intent is passed through as-is and the tool
+    selects its own default operation (e.g. astronomy -> `sun`).
 
     Raises LocalUnavailableError if the core is missing or can't run the namespace.
     """
@@ -59,10 +80,12 @@ def run_local(namespace: str, tool: str, arguments: dict | None) -> dict:
             f"(the core runs: {', '.join(sorted(local_namespaces()))})."
         )
 
-    intent = {**(arguments or {}), "operation": tool}
+    intent = dict(arguments or {})
+    if operation is not None:
+        intent["operation"] = operation
     raw = json.loads(faro_core.execute_free_tool(namespace, json.dumps(intent)))
 
-    skill = f"{namespace}.{tool}"
+    skill = f"{namespace}.{operation}" if operation is not None else namespace
     # Free tools charge nothing; stamp it so meta matches a remote free-tool call.
     meta_json = json.dumps({"credits_charged": 0})
 

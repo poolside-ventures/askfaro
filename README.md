@@ -4,11 +4,13 @@
 [![CI](https://github.com/poolside-ventures/askfaro/actions/workflows/ci.yml/badge.svg)](https://github.com/poolside-ventures/askfaro/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-The Faro Python SDK. **Local-first**: the free tools the bundled Rust core can run
-execute on-device with `invoke()` — no API key, no network, no credits. Everything
-else is a **skill** you `run()` on Faro's hosted skill agent. Both return the
+The Faro Python SDK. **One call — `run(capability, intent)` — runs any
+capability.** Where it runs is a transparent optimization you never choose: if the
+bundled Rust core can run it on-device it does (free, instant, no key, no network,
+even offline); otherwise it goes to Faro's hosted skill agent, which picks the
+tools, enforces your budget, and bills your account. Both paths return the
 identical canonical envelope, so your result-handling code is the same whether a
-tool ran on your machine or in the cloud.
+capability ran on your machine or in the cloud.
 
 ```bash
 pip install askfaro
@@ -17,45 +19,55 @@ pip install askfaro
 ```python
 from askfaro import Faro
 
-faro = Faro()                                    # no key needed for on-device tools
-r = faro.invoke("calc/evaluate", {"expression": "2 + 2 * 3"})
-assert r.ok and r.local and r.data["result"] == 8
+faro = Faro()                                    # no key needed for on-device runs
+r = faro.run("astronomy", {"latitude": 48.85, "longitude": 2.35})
+assert r.ok and r.local                          # the core ran it on-device — $0
 
-# Anything beyond the on-device core is a *skill*: the skill agent picks the
-# tools, runs them, enforces your budget, and bills your account.
+# A capability the core can't run goes to the skill agent automatically — same
+# call, same result shape. The agent picks the tools, enforces your budget, and
+# bills your account, so this path needs an API key.
 faro = Faro(api_key="faro_...")
 r = faro.run("image", {"prompt": "a red bicycle"})
 if r.ok:
     print(r.data, r.credits_charged)
 else:
-    print("failed:", r.error)            # a failed skill is a result, not an exception
+    print("failed:", r.error)            # a failed run is a result, not an exception
 ```
 
 The Rust core is compiled into this package (`askfaro._core`), so a single
 `pip install askfaro` is all you need — there is no separate core package to
 install.
 
-## invoke() vs run()
+## Transparent routing
 
-Two execution methods, split by where the work happens:
+`run()` is the single entry point. **You never pick on-device vs. server** — the
+SDK routes for you:
 
-- **`invoke("namespace/tool")`** runs an **on-device core tool** (calc, units,
-  phone, …) in-process: no key, no network, no credits. Only the bundled core's
-  free tools are invocable; raw remote tools are not directly callable (the API
-  answers "use the skill layer"), so for anything vendor-backed, use `run()`.
-- **`run("skill", intent)`** runs a **skill**: the skill agent selects the
-  operations, calls the underlying tools, enforces your budget, and bills your
-  account. This is the path for every capability that isn't an on-device tool.
-  It needs an API key and runs on Faro's hosted skill agent (`skill.askfaro.com`).
+- if the bundled core can run the capability (`calc`, `units`, `phone`,
+  `astronomy`, …) it runs **in-core**: no key, no network, no credits, even
+  offline;
+- otherwise `run()` POSTs to Faro's hosted skill agent (`skill.askfaro.com`),
+  which selects the operations, calls the underlying tools, enforces your budget,
+  and bills your account — so that path needs an API key.
 
 What runs on-device is the bundled core's capability list
 (`Faro.local_namespaces()`), not a pricing flag; it grows as more tools are ported
-into the core. Calling `invoke()` on a non-core tool raises and points you at
-`run()`.
+into the core, and capabilities silently get cheaper/faster with no code change on
+your side.
+
+```python
+faro.run("astronomy", {"latitude": 48.85, "longitude": 2.35})  # on-device, $0
+faro.run("image", {"prompt": "a red bicycle"})                 # skill agent, billed
+```
+
+**Advanced — `invoke("namespace/tool")`** is an escape hatch that *forces*
+on-device execution of a specific core tool and raises if it can't run there. Most
+callers should just use `run()`; reach for `invoke()` only when a call must stay
+local (e.g. a hard no-network guarantee).
 
 ## Results & errors
 
-`invoke()` and `run()` return an `InvokeResult` (the canonical envelope). Read
+`run()` (and `invoke()`) returns an `InvokeResult` (the canonical envelope). Read
 `.status`, which is one of three outcomes — **a failed call is a result, not an
 exception**:
 

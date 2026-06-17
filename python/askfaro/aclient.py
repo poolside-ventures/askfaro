@@ -27,7 +27,7 @@ from askfaro.client import (
     _split,
 )
 from askfaro.errors import FaroError, RemoteError
-from askfaro.local import can_run_local, local_namespaces, run_local
+from askfaro.local import can_run_local, local_namespaces, run_local, split_skill_id
 from askfaro.result import InvokeResult, SearchHit
 
 
@@ -108,28 +108,29 @@ class AsyncFaro:
     # ---- invocation ----------------------------------------------------------
 
     async def invoke(self, tool: str, arguments: dict | None = None) -> InvokeResult:
-        """Run an on-device free tool in the embedded core: no API key, no network,
-        no credits. The core is in-process so there is no real I/O to await, but
-        this stays a coroutine for a uniform async surface. Only the core's free
-        tools are invocable; anything remote/paid is a skill: use `run()`.
-        See `Faro.invoke`.
+        """Advanced: *force* on-device execution of a specific core tool in the
+        embedded core — no API key, no network, no credits. The core is in-process
+        so there is no real I/O to await, but this stays a coroutine for a uniform
+        async surface. Most callers should use `run()`, which routes on-device
+        automatically. Only the core's free tools are invocable here. See
+        `Faro.invoke`.
         """
         namespace, name = _split(tool)
         if not can_run_local(namespace):
             local = ", ".join(sorted(local_namespaces())) or "none in this build"
             raise FaroError(
                 f"{tool!r} is not an on-device tool, so it can't be invoke()d. "
-                f"invoke() runs only the embedded core's free tools ({local}). "
-                f"Reach remote capabilities with run(skill, intent).",
+                f"invoke() forces on-device execution of the embedded core's free "
+                f"tools ({local}). Use run(capability, intent) to reach anything else.",
                 "validation_error",
             )
         return InvokeResult(run_local(namespace, name, arguments), local=True)
 
-    # ---- skills --------------------------------------------------------------
+    # ---- capability execution -------------------------------------------------
 
     async def run(
         self,
-        skill: str,
+        capability: str,
         intent: dict | str,
         *,
         max_credits: float | None = None,
@@ -137,11 +138,15 @@ class AsyncFaro:
         continuation: str | None = None,
         idempotency_key: str | None = None,
     ) -> InvokeResult:
-        """Run a skill end-to-end: intent in, normalized envelope out. Requires an
-        API key. Pass `idempotency_key` to make a retried run replay the prior
-        success instead of charging again. See `Faro.run`."""
-        if not skill or not isinstance(skill, str):
-            raise FaroError("run(skill, intent) needs a skill id.", "validation_error")
+        """Run a capability end-to-end: intent in, normalized envelope out.
+
+        Routing is transparent: if the bundled core can run `capability`
+        on-device it does (free, no key, no network); otherwise it POSTs to the
+        hosted skill agent (needs an API key). Pass `idempotency_key` to make a
+        retried run replay the prior success instead of charging again.
+        See `Faro.run`."""
+        if not capability or not isinstance(capability, str):
+            raise FaroError("run(capability, intent) needs a capability id.", "validation_error")
         if isinstance(intent, str):
             intent = {"prompt": intent}
         if not isinstance(intent, dict):
@@ -149,6 +154,13 @@ class AsyncFaro:
                 'run() intent must be a dict or a string, e.g. {"prompt": "..."}.',
                 "validation_error",
             )
+
+        # Transparent on-device routing: the synchronous in-core path has no I/O to
+        # await, so it returns directly — no key, no network, same envelope.
+        namespace, operation = split_skill_id(capability)
+        if can_run_local(namespace):
+            return InvokeResult(run_local(namespace, operation, intent), local=True)
+
         if not self._api_key:
             raise FaroError(
                 "An API key is required to run skills. Pass api_key=... or set FARO_API_KEY.",
@@ -167,7 +179,7 @@ class AsyncFaro:
 
         client = self._ensure_skill_http()
         try:
-            resp = await client.post(f"/skills/{skill}/run", json=payload)
+            resp = await client.post(f"/skills/{capability}/run", json=payload)
         except Exception as e:  # httpx network/timeout errors
             raise RemoteError(
                 f"Network error calling the Faro skill agent: {e}", "network_error", retryable=True

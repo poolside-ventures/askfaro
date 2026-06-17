@@ -1,23 +1,27 @@
 """Faro Python SDK.
 
-Local-first: tools the embedded Rust core can run execute on-device (no API key,
-no network, no credits); everything else falls back to the Faro backend. Local and
-remote results share the identical canonical envelope.
+`run(capability, intent)` is the one way to execute a capability. Where it runs is
+a transparent optimization you never choose: if the bundled Rust core can run it
+on-device it does (free, instant, no key, no network); otherwise it goes to Faro's
+hosted skill agent (needs an API key). Either way you get the identical canonical
+envelope, so your result-handling code is the same.
 
     from askfaro import Faro
 
-    faro = Faro()                                   # no key needed for local tools
-    r = faro.invoke("calc/evaluate", {"expression": "2 + 2 * 3"})
+    faro = Faro()                                   # no key needed for on-device runs
+    r = faro.run("astronomy", {"latitude": 48.85, "longitude": 2.35})
     r.ok        # True
-    r.data      # {"expression": "2 + 2 * 3", "result": 8, ...}
-    r.local     # True  (ran on-device)
+    r.local     # True  (the core ran it on-device — free, no network)
 
-    # Anything beyond the on-device core is a skill: the skill agent runs the
-    # tools and bills you (needs an API key).
+    # Anything the core can't run goes to the skill agent, which runs the tools
+    # and bills you (needs an API key) — same call, same result shape.
     faro = Faro(api_key="faro_...")
     faro.run("image", {"prompt": "a red bicycle"})
 
-Discovery (no key needed): describe what you want and get a suitable skill, or
+`invoke("namespace/tool")` is an advanced escape hatch that forces on-device
+execution of a specific core tool; reach for it only when a call must stay local.
+
+Discovery (no key needed): describe what you want and get a suitable capability, or
 browse the progressive-context catalog map.
 
     for hit in Faro().search("generate an image"):
@@ -42,7 +46,7 @@ from askfaro.errors import (
 )
 from askfaro.result import InvokeResult, SearchHit
 
-__version__ = "0.3.0"
+__version__ = "0.5.0"
 
 __all__ = [
     "Faro",

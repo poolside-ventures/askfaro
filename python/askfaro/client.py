@@ -10,6 +10,7 @@ from askfaro.local import (
     core_version,
     local_namespaces,
     run_local,
+    split_skill_id,
 )
 from askfaro.result import InvokeResult, SearchHit
 
@@ -35,12 +36,15 @@ def _split(tool: str) -> tuple[str, str]:
 class Faro:
     """Faro client.
 
-    Two ways to reach a capability:
-      - `invoke(tool)` runs an on-device free tool (calc, units, ...) in the
-        embedded core: no API key, no network, no credits.
-      - `run(skill, intent)` runs a skill on Faro's hosted skill agent, which
-        selects the underlying tools and bills your account. This is the path for
-        everything remote/paid; raw remote tools are not directly callable.
+    `run(capability, intent)` is the single entry point for executing a
+    capability. Where it runs is a transparent optimization you never choose: if
+    the bundled core can run it on-device (calc, units, astronomy, ...) it does —
+    free, instant, no key, no network — otherwise it goes to Faro's hosted skill
+    agent, which selects the underlying tools and bills your account. Either way
+    you get the same canonical `InvokeResult`.
+
+    `invoke(tool)` is an advanced escape hatch that *forces* on-device execution
+    of a specific core tool; most callers should just use `run()`.
     """
 
     def __init__(
@@ -122,33 +126,36 @@ class Faro:
     # ---- invocation ----------------------------------------------------------
 
     def invoke(self, tool: str, arguments: dict | None = None) -> InvokeResult:
-        """Run an on-device free tool `namespace/tool` (e.g. `calc/evaluate`) in
-        the embedded core: no API key, no network, no credits. Returns a normalized
-        InvokeResult; tool-level failures come back with `.ok == False`.
+        """Advanced: *force* on-device execution of a specific core tool
+        `namespace/tool` (e.g. `calc/evaluate`) in the embedded core — no API key,
+        no network, no credits. Returns a normalized InvokeResult; tool-level
+        failures come back with `.ok == False`.
 
-        Only the embedded core's free tools are invocable. Anything remote/paid is a
-        skill: use `run(skill, intent)`.
+        Most callers should use `run()`, which routes on-device automatically when
+        possible and otherwise to the skill agent. Reach for `invoke()` only when
+        you need to guarantee a call stays local (and fail loudly if it can't).
+        Only the embedded core's free tools are invocable here.
         """
         namespace, name = _split(tool)
         if not can_run_local(namespace):
             local = ", ".join(sorted(local_namespaces())) or "none in this build"
             raise FaroError(
                 f"{tool!r} is not an on-device tool, so it can't be invoke()d. "
-                f"invoke() runs only the embedded core's free tools ({local}). "
-                f"Reach remote capabilities with run(skill, intent).",
+                f"invoke() forces on-device execution of the embedded core's free "
+                f"tools ({local}). Use run(capability, intent) to reach anything else.",
                 "validation_error",
             )
         return InvokeResult(run_local(namespace, name, arguments), local=True)
 
-    # ---- skills --------------------------------------------------------------
-    # `invoke()` runs an on-device free tool. Everything remote/paid is a SKILL:
-    # the skill agent selects operations, calls the underlying tools, and bills
-    # your account. Raw remote tools are not directly invocable (the API returns
-    # "use the skill layer").
+    # ---- capability execution -------------------------------------------------
+    # run() is the single transparent entry. On-device vs. server is an internal
+    # optimization: if the bundled core can run the capability it does (free,
+    # instant, offline); otherwise the skill agent selects operations, calls the
+    # underlying tools, and bills your account.
 
     def run(
         self,
-        skill: str,
+        capability: str,
         intent: dict | str,
         *,
         max_credits: float | None = None,
@@ -156,23 +163,37 @@ class Faro:
         continuation: str | None = None,
         idempotency_key: str | None = None,
     ) -> InvokeResult:
-        """Run a skill end-to-end: intent in, normalized envelope out.
+        """Run a capability end-to-end: intent in, normalized envelope out.
 
-        `intent` is a dict the skill understands, or a plain string (treated as
-        `{"prompt": ...}`). Returns an InvokeResult; a run that would cross the
+        Routing is transparent and automatic — you never pick on-device vs. server:
+
+          - if the bundled core can run `capability` on-device (see
+            `local_namespaces()`) it runs in-core — free, instant, no key, no
+            network, even offline;
+          - otherwise it POSTs to Faro's hosted skill agent, which selects the
+            underlying tools and bills your account (needs an API key).
+
+        Either way you get the same canonical `InvokeResult`. `intent` is a dict the
+        capability understands, or a plain string (treated as `{"prompt": ...}`); on
+        the on-device path it is the structured intent the core tool expects (e.g.
+        astronomy needs `latitude`/`longitude`/`date`). A run that would cross the
         soft `confirm_above` ceiling comes back with `.status == "needs_input"`
-        (a quote) rather than spending. Requires an API key.
+        (a quote) rather than spending.
 
         Pass `idempotency_key` for any run you might retry: a repeat of the same key
         replays the prior successful result instead of running (and charging) again.
-        Use a fresh key per distinct logical call.
+        Use a fresh key per distinct logical call. The budget/idempotency kwargs
+        (`max_credits`, `confirm_above`, `continuation`, `idempotency_key`) govern
+        the server path; on-device runs are free and deterministic, so they are moot
+        there and ignored.
 
-            faro.run("image", {"prompt": "a red bicycle"})
-            faro.run("image", "a red bicycle")            # shorthand
+            faro.run("astronomy", {"latitude": 48.85, "longitude": 2.35})  # on-device
+            faro.run("image", {"prompt": "a red bicycle"})                 # server
+            faro.run("image", "a red bicycle")                             # shorthand
             faro.run("image", "a red bicycle", idempotency_key="order-42")
         """
-        if not skill or not isinstance(skill, str):
-            raise FaroError("run(skill, intent) needs a skill id.", "validation_error")
+        if not capability or not isinstance(capability, str):
+            raise FaroError("run(capability, intent) needs a capability id.", "validation_error")
         if isinstance(intent, str):
             intent = {"prompt": intent}
         if not isinstance(intent, dict):
@@ -180,6 +201,13 @@ class Faro:
                 'run() intent must be a dict or a string, e.g. {"prompt": "..."}.',
                 "validation_error",
             )
+
+        # Transparent on-device routing: if the core can run this capability's
+        # namespace, execute in-core — no key, no network, same envelope.
+        namespace, operation = split_skill_id(capability)
+        if can_run_local(namespace):
+            return InvokeResult(run_local(namespace, operation, intent), local=True)
+
         if not self._api_key:
             raise FaroError(
                 "An API key is required to run skills. Pass api_key=... or set FARO_API_KEY.",
@@ -198,7 +226,7 @@ class Faro:
 
         client = self._ensure_skill_http()
         try:
-            resp = client.post(f"/skills/{skill}/run", json=payload)
+            resp = client.post(f"/skills/{capability}/run", json=payload)
         except Exception as e:  # httpx network/timeout errors
             raise RemoteError(
                 f"Network error calling the Faro skill agent: {e}", "network_error", retryable=True

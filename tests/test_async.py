@@ -48,6 +48,19 @@ async def test_search_returns_hits():
 
 
 @respx.mock
+async def test_run_routes_core_capability_on_device():
+    # Transparent routing in the async client too: a core capability runs in-core
+    # with no key and never reaches the skill agent.
+    route = respx.post(f"{SKILL}/skills/astronomy/run").mock(
+        return_value=httpx.Response(200, json={"status": "success"})
+    )
+    async with AsyncFaro() as faro:
+        r = await faro.run("astronomy", {"latitude": 48.85, "longitude": 2.35, "date": "2026-06-21"})
+    assert r.local is True and r.ok is True
+    assert not route.called
+
+
+@respx.mock
 async def test_run_posts_to_skill_agent():
     route = respx.post(f"{SKILL}/skills/image/run").mock(
         return_value=httpx.Response(
