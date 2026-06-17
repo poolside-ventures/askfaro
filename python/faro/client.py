@@ -11,7 +11,7 @@ from faro.local import (
     local_namespaces,
     run_local,
 )
-from faro.result import InvokeResult
+from faro.result import InvokeResult, SearchHit
 
 DEFAULT_BASE_URL = "https://api.askfaro.com"
 _MODES = ("auto", "local", "remote")
@@ -56,7 +56,8 @@ class Faro:
         self._base_url = base_url.rstrip("/")
         self.mode = mode
         self._timeout = timeout
-        self._http = None  # lazily created only if a remote call happens
+        self._http = None  # lazily created only if a remote (authed) call happens
+        self._discovery_http = None  # discovery endpoints; no key required
 
     # ---- capability introspection -------------------------------------------
 
@@ -72,6 +73,54 @@ class Faro:
     @staticmethod
     def core_version() -> str | None:
         return core_version()
+
+    # ---- discovery -----------------------------------------------------------
+    # The two ways to reach a capability: invoke one you already know (below), or
+    # discover one from intent. Discovery needs no API key (a key is sent if set).
+
+    def search(
+        self,
+        query: str,
+        *,
+        limit: int = 10,
+        category: str | None = None,
+    ) -> list[SearchHit]:
+        """Find skills/tools by intent — the "describe what you want, get a
+        suitable skill" path. Hybrid lexical + semantic search over the public
+        catalog, ranked by relevance. No API key required.
+
+        Each `SearchHit` carries enough to invoke without a second call: `.id`
+        (hand it to `invoke()`), `.input_schema`, and `.pricing`.
+
+            for hit in faro.search("transcribe an audio file"):
+                print(hit.id, hit.short_description, hit.pricing)
+        """
+        if not query or not query.strip():
+            raise FaroError("search(query) needs a non-empty query.", "validation_error")
+        params: dict = {"q": query, "limit": limit}
+        if category:
+            params["category"] = category
+        envelope = self._get("/tools/search", params)
+        items = envelope.get("items", []) if isinstance(envelope, dict) else []
+        return [SearchHit(item) for item in items]
+
+    def describe(self, tool: str) -> dict:
+        """Full input schema, long description, and pricing for one tool.
+        Wraps `GET /tools/{namespace}/{tool}`. No API key required."""
+        namespace, name = _split(tool)
+        return self._get(f"/tools/{namespace}/{name}")
+
+    def browse(self, *, budget: str = "4k") -> dict:
+        """Fetch the progressive-context (pcx) catalog map: a navigable,
+        budget-aware index you expand one branch at a time — ideal for small /
+        on-device context windows. No API key required.
+
+        Returns the manifest as a dict; it self-describes its navigation protocol
+        in its top-level `usage` field, and `faro-progressive-context`'s
+        `Runtime` / `NavSession` can drive it directly. `budget` is "4k" (tight /
+        on-device) or "32k" (more headroom).
+        """
+        return self._get("/pcx/manifest", {"budget": budget})
 
     # ---- invocation ----------------------------------------------------------
 
@@ -130,12 +179,43 @@ class Faro:
             )
         return self._http
 
+    def _ensure_discovery_http(self):
+        """A client for the public discovery endpoints — no key required (the
+        bearer is attached only if one is set)."""
+        if self._discovery_http is None:
+            import httpx
+
+            headers = {}
+            if self._api_key:
+                headers["Authorization"] = f"Bearer {self._api_key}"
+            self._discovery_http = httpx.Client(
+                base_url=self._base_url, headers=headers, timeout=self._timeout
+            )
+        return self._discovery_http
+
+    def _get(self, path: str, params: dict | None = None):
+        client = self._ensure_discovery_http()
+        try:
+            resp = client.get(path, params=params)
+        except Exception as e:  # httpx network/timeout errors
+            raise RemoteError(f"Network error calling Faro: {e}", "network_error", retryable=True)
+        if resp.is_success:
+            return resp.json()
+        try:
+            detail = resp.json().get("detail", resp.text)
+        except Exception:
+            detail = resp.text
+        retryable = resp.status_code >= 500 or resp.status_code == 429
+        raise RemoteError(str(detail), "remote_error", status=resp.status_code, retryable=retryable)
+
     # ---- lifecycle -----------------------------------------------------------
 
     def close(self) -> None:
-        if self._http is not None:
-            self._http.close()
-            self._http = None
+        for attr in ("_http", "_discovery_http"):
+            client = getattr(self, attr)
+            if client is not None:
+                client.close()
+                setattr(self, attr, None)
 
     def __enter__(self):
         return self

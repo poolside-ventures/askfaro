@@ -14,6 +14,12 @@ remote results share the identical canonical envelope.
 
     faro = Faro(api_key="faro_...")                 # key enables backend fallback
     faro.invoke("weather/current", {"city": "Paris"})   # -> backend
+
+Discovery (no key needed): describe what you want and get a suitable skill, or
+browse the progressive-context catalog map.
+
+    for hit in Faro().search("transcribe an audio file"):
+        print(hit.id, hit.short_description)        # hit.id is what invoke() takes
 """
 
 from faro.client import Faro
@@ -23,13 +29,14 @@ from faro.errors import (
     RemoteError,
     ToolError,
 )
-from faro.result import InvokeResult
+from faro.result import InvokeResult, SearchHit
 
 __version__ = "0.1.0"
 
 __all__ = [
     "Faro",
     "InvokeResult",
+    "SearchHit",
     "FaroError",
     "LocalUnavailableError",
     "RemoteError",

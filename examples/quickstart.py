@@ -3,8 +3,9 @@
     pip install askfaro
     python examples/quickstart.py
 
-Free tools run on-device — no API key, no network, no credits. Pass an api_key
+Free tools run on-device, with no API key, no network, no credits. Pass an api_key
 (or set FARO_API_KEY) to also reach vendor-backed tools through the Faro backend.
+Discovery (search/browse) also needs no key.
 """
 
 from faro import Faro
@@ -25,3 +26,11 @@ print("phone:", r.data["e164"], "|", r.data["region_code"], "|", r.data["number_
 
 # What can run on-device in this build?
 print("on-device tools:", ", ".join(sorted(faro.local_namespaces())))
+
+# Discovery: describe what you want, get suitable skills back (no key needed).
+# This one calls the live catalog, so it needs network.
+try:
+    hits = faro.search("transcribe an audio file", limit=3)
+    print("search:", ", ".join(h.id for h in hits) or "(no matches)")
+except Exception as e:  # offline / no network
+    print("search: skipped:", e)
