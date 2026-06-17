@@ -88,6 +88,47 @@ def test_describe_bad_identifier_raises():
         Faro().describe("not-a-tool-id")
 
 
+_PCX_MANIFEST = {
+    "usage": "...",
+    "root": {
+        "id": "root",
+        "children": ["cat-web", "cat-data"],
+    },
+    "nodes": {
+        "cat-web": {
+            "title": "Web",
+            "what": "Web capabilities",
+            "when": "...",
+            "children": ["node-web-search", "node-research"],
+        },
+        "cat-data": {
+            "title": "Data",
+            "what": "Data capabilities",
+            "when": "...",
+            "children": ["node-weather"],
+        },
+        "node-web-search": {
+            "title": "Web Search",
+            "what": "Search the web for current information.",
+            "when": "...",
+            "skill_id": "web-search",
+        },
+        "node-research": {
+            "title": "Research",
+            "what": "Deep research with cited sources.",
+            "when": "...",
+            "skill_id": "research",
+        },
+        "node-weather": {
+            "title": "Weather",
+            "what": "Current and forecast weather for any location.",
+            "when": "...",
+            "skill_id": "weather",
+        },
+    },
+}
+
+
 @respx.mock
 def test_browse_fetches_pcx_manifest():
     route = respx.get("https://api.askfaro.com/pcx/manifest").mock(
@@ -97,6 +138,76 @@ def test_browse_fetches_pcx_manifest():
     assert route.called
     assert route.calls.last.request.url.params["budget"] == "32k"
     assert "usage" in manifest
+
+
+@respx.mock
+def test_browse_accepts_integer_budget():
+    # Integer budget 1500 maps to the "4k" tier on the server.
+    route = respx.get("https://api.askfaro.com/pcx/manifest").mock(
+        return_value=httpx.Response(200, json={"usage": "...", "nodes": []})
+    )
+    Faro().browse(1500)
+    assert route.calls.last.request.url.params["budget"] == "4k"
+
+
+@respx.mock
+def test_browse_integer_budget_large_maps_to_32k():
+    route = respx.get("https://api.askfaro.com/pcx/manifest").mock(
+        return_value=httpx.Response(200, json={"usage": "...", "nodes": []})
+    )
+    Faro().browse(8000)
+    assert route.calls.last.request.url.params["budget"] == "32k"
+
+
+@respx.mock
+def test_browse_format_text_returns_manifest_text():
+    respx.get("https://api.askfaro.com/pcx/manifest").mock(
+        return_value=httpx.Response(200, json=_PCX_MANIFEST)
+    )
+    result = Faro().browse(format="text")
+    assert "manifest_text" in result
+    assert "skill_count" in result
+    assert "budget_tokens" in result
+    text = result["manifest_text"]
+    # All skills appear as callable ids in the text
+    assert "web-search:" in text
+    assert "research:" in text
+    assert "weather:" in text
+    # Categories rendered as headers
+    assert "## Web" in text
+    assert "## Data" in text
+
+
+@respx.mock
+def test_browse_format_text_exclude_drops_skills():
+    respx.get("https://api.askfaro.com/pcx/manifest").mock(
+        return_value=httpx.Response(200, json=_PCX_MANIFEST)
+    )
+    result = Faro().browse(format="text", exclude=["web-search", "research"])
+    text = result["manifest_text"]
+    assert "web-search" not in text
+    assert "research" not in text
+    assert "weather:" in text
+    # skill_count reflects post-exclude count
+    assert result["skill_count"] == 1
+
+
+@respx.mock
+def test_browse_format_text_hard_budget_ceiling():
+    respx.get("https://api.askfaro.com/pcx/manifest").mock(
+        return_value=httpx.Response(200, json=_PCX_MANIFEST)
+    )
+    budget = 20  # very tight — forces ids-only or category shedding
+    result = Faro().browse(budget, format="text")
+    text = result["manifest_text"]
+    # Must fit within budget (chars/4 approximation)
+    assert (len(text) + 3) // 4 <= budget
+    assert result["budget_tokens"] == budget
+
+
+def test_browse_invalid_format_raises():
+    with pytest.raises(FaroError):
+        Faro().browse(format="xml")
 
 
 @respx.mock

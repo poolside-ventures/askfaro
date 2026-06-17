@@ -100,10 +100,38 @@ class AsyncFaro:
         namespace, name = _split(tool)
         return await self._get(f"/tools/{namespace}/{name}")
 
-    async def browse(self, *, budget: str = "4k") -> dict:
+    async def browse(
+        self,
+        budget: str | int = "4k",
+        *,
+        format: str = "json",
+        exclude: list[str] | None = None,
+    ) -> dict:
         """Fetch the progressive-context (pcx) catalog map. No API key required.
-        See `Faro.browse`."""
-        return await self._get("/pcx/manifest", {"budget": budget})
+        See `Faro.browse` for full parameter documentation."""
+        from askfaro._browse import budget_to_tier, budget_to_tokens, render_manifest_text
+
+        if format not in ("json", "text"):
+            raise FaroError(
+                f"browse() format must be 'json' or 'text', got {format!r}.",
+                "validation_error",
+            )
+
+        tier = budget_to_tier(budget)
+        manifest = await self._get("/pcx/manifest", {"budget": tier})
+
+        if format == "json":
+            return manifest
+
+        excl: frozenset[str] = frozenset(exclude) if exclude else frozenset()
+        token_ceiling = budget_to_tokens(budget)
+        text = render_manifest_text(manifest, token_ceiling, excl)
+        skill_count = sum(
+            1
+            for n in manifest.get("nodes", {}).values()
+            if n.get("skill_id") and n["skill_id"] not in excl
+        )
+        return {"manifest_text": text, "skill_count": skill_count, "budget_tokens": token_ceiling}
 
     # ---- invocation ----------------------------------------------------------
 

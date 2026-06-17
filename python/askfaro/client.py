@@ -111,17 +111,51 @@ class Faro:
         namespace, name = _split(tool)
         return self._get(f"/tools/{namespace}/{name}")
 
-    def browse(self, *, budget: str = "4k") -> dict:
-        """Fetch the progressive-context (pcx) catalog map: a navigable,
-        budget-aware index you expand one branch at a time — ideal for small /
-        on-device context windows. No API key required.
+    def browse(
+        self,
+        budget: str | int = "4k",
+        *,
+        format: str = "json",
+        exclude: list[str] | None = None,
+    ) -> dict:
+        """Fetch the progressive-context (pcx) catalog map. No API key required.
 
-        Returns the manifest as a dict; it self-describes its navigation protocol
-        in its top-level `usage` field, and `askfaro-progressive-context`'s
-        `Runtime` / `NavSession` can drive it directly. `budget` is "4k" (tight /
-        on-device) or "32k" (more headroom).
+        Args:
+            budget: Token budget. Named tiers: "4k" (default) or "32k". Or pass an
+                integer (e.g. 1500) to size the catalog to any context window — the
+                on-device use-case wants ~1k-2k.
+            format: "json" (default) returns the raw pcx manifest dict for
+                programmatic navigation. "text" returns an inject-ready
+                markdown/plaintext catalog in {"manifest_text": "..."} — each line
+                carries the skill_id so the agent can call
+                run(capability=<id>) directly. The text is guaranteed ≤ budget tokens.
+            exclude: Skill ids to drop before budgeting. Pass the ids of skills you
+                don't want to surface (e.g. duplicates you handle elsewhere) so the
+                budget is spent only on what's shown.
         """
-        return self._get("/pcx/manifest", {"budget": budget})
+        from askfaro._browse import budget_to_tier, budget_to_tokens, render_manifest_text
+
+        if format not in ("json", "text"):
+            raise FaroError(
+                f"browse() format must be 'json' or 'text', got {format!r}.",
+                "validation_error",
+            )
+
+        tier = budget_to_tier(budget)
+        manifest = self._get("/pcx/manifest", {"budget": tier})
+
+        if format == "json":
+            return manifest
+
+        excl: frozenset[str] = frozenset(exclude) if exclude else frozenset()
+        token_ceiling = budget_to_tokens(budget)
+        text = render_manifest_text(manifest, token_ceiling, excl)
+        skill_count = sum(
+            1
+            for n in manifest.get("nodes", {}).values()
+            if n.get("skill_id") and n["skill_id"] not in excl
+        )
+        return {"manifest_text": text, "skill_count": skill_count, "budget_tokens": token_ceiling}
 
     # ---- invocation ----------------------------------------------------------
 
