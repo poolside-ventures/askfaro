@@ -3,8 +3,9 @@ requires = ["maturin>=1.13,<2"]
 build-backend = "maturin"
 
 [project]
-# `faro` / `faro-sdk` are taken on PyPI; `askfaro` is the org namespace (cf.
-# askfaro-cli). The import name is `faro` (see tool.maturin.python-source).
+# `faro` / `faro-sdk` are taken on PyPI, so the distribution and the import name
+# are both `askfaro` (cf. askfaro-cli). The native core is bundled as
+# `askfaro._core` (see tool.maturin.python-source).
 name = "askfaro"
 description = "Faro SDK: run free Faro tools on-device via the bundled Rust core, fall back to the API for the rest. Local and remote results share the identical envelope."
 readme = "README.md"
@@ -17,7 +18,7 @@ classifiers = [
 ]
 dependencies = [
     # Remote fallback transport. The Rust core is compiled into this package
-    # (faro._core), so there is no separate core dependency to install.
+    # (askfaro._core), so there is no separate core dependency to install.
     "httpx>=0.28.0",
 ]
 dynamic = ["version"]
@@ -34,9 +35,9 @@ dev = [
 ]
 
 [tool.maturin]
-# Mixed Rust/Python: pure-Python SDK under python/faro, native core as faro._core.
+# Mixed Rust/Python: pure-Python SDK under python/faro, native core as askfaro._core.
 python-source = "python"
-module-name = "faro._core"
+module-name = "askfaro._core"
 features = ["pyo3/extension-module"]
 
 [tool.pytest.ini_options]

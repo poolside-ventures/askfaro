@@ -1,0 +1,87 @@
+"""AsyncFaro tests: the async client mirrors Faro's routing and surface.
+
+asyncio_mode=auto (pyproject) runs these coroutines under pytest-asyncio; respx
+intercepts httpx.AsyncClient the same way it does the sync client.
+"""
+
+import json
+
+import httpx
+import pytest
+import respx
+
+from askfaro import AsyncFaro, FaroError, RemoteError
+
+API = "https://api.askfaro.com"
+SKILL = "https://skill.askfaro.com"
+
+
+async def test_local_invoke_runs_on_device_without_await_network():
+    # No api_key: a local tool must never touch the backend.
+    async with AsyncFaro() as faro:
+        r = await faro.invoke("calc/evaluate", {"expression": "2 + 2 * 3"})
+        assert r.local is True
+        assert r.ok is True
+        assert r.data["result"] == 8
+
+
+@respx.mock
+async def test_remote_invoke_awaits_backend():
+    route = respx.post(f"{API}/invoke/weather/current").mock(
+        return_value=httpx.Response(
+            200, json={"status": "success", "result": {"kind": "information", "data": {"temp": 20}}}
+        )
+    )
+    async with AsyncFaro(api_key="faro_test") as faro:
+        r = await faro.invoke("weather/current", {"city": "Paris"}, mode="remote")
+    assert route.called
+    assert r.ok and not r.local and r.data["temp"] == 20
+
+
+@respx.mock
+async def test_search_returns_hits():
+    respx.get(f"{API}/tools/search").mock(
+        return_value=httpx.Response(
+            200,
+            json={"items": [{"object_type": "skill", "skill_id": "image", "short_description": "make images"}]},
+        )
+    )
+    async with AsyncFaro() as faro:
+        hits = await faro.search("generate an image")
+    assert len(hits) == 1
+    assert hits[0].kind == "skill" and hits[0].id == "image"
+
+
+@respx.mock
+async def test_run_posts_to_skill_agent():
+    route = respx.post(f"{SKILL}/skills/image/run").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "faro_envelope": "1",
+                "status": "success",
+                "result": {"kind": "information", "data": {"download_url": "https://x/y.png"}},
+                "meta": {"credits_charged": 40},
+            },
+        )
+    )
+    async with AsyncFaro(api_key="faro_test") as faro:
+        r = await faro.run("image", "a red bicycle")
+    assert route.called and r.ok and not r.local
+    req = route.calls.last.request
+    assert req.headers["authorization"] == "Bearer faro_test"
+    assert json.loads(req.content)["intent"] == {"prompt": "a red bicycle"}
+
+
+async def test_run_without_key_raises():
+    async with AsyncFaro() as faro:
+        with pytest.raises(FaroError):
+            await faro.run("image", "a red bicycle")
+
+
+@respx.mock
+async def test_remote_error_raises():
+    respx.get(f"{API}/tools/search").mock(return_value=httpx.Response(503, json={"detail": "down"}))
+    async with AsyncFaro() as faro:
+        with pytest.raises(RemoteError):
+            await faro.search("anything")

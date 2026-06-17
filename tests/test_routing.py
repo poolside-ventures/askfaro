@@ -4,7 +4,7 @@ import httpx
 import pytest
 import respx
 
-from faro import Faro, FaroError
+from askfaro import Faro, FaroError
 
 
 def test_auto_prefers_local_for_core_namespace():
@@ -50,7 +50,7 @@ def test_remote_http_error_raises():
         return_value=httpx.Response(402, json={"detail": "insufficient credits"})
     )
     faro = Faro(api_key="faro_test")
-    from faro import RemoteError
+    from askfaro import RemoteError
 
     with pytest.raises(RemoteError):
         faro.invoke("weather/current", {"city": "Paris"})

@@ -23,7 +23,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      # ubuntu-latest ships a Rust toolchain; maturin builds faro._core on install.
+      # ubuntu-latest ships a Rust toolchain; maturin builds askfaro._core on install.
       - name: Build + install
         run: |
           uv venv

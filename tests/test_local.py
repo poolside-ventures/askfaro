@@ -2,7 +2,7 @@
 
 import pytest
 
-from faro import Faro, LocalUnavailableError
+from askfaro import Faro, LocalUnavailableError
 
 
 @pytest.fixture
@@ -70,7 +70,7 @@ def test_mode_local_raises_for_backend_only_namespace(faro):
 
 
 def test_invalid_tool_identifier(faro):
-    from faro import FaroError
+    from askfaro import FaroError
 
     with pytest.raises(FaroError):
         faro.invoke("nonsense", {})

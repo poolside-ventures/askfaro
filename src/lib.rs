@@ -1,5 +1,5 @@
 //! Native extension bundled into the `askfaro` Python package, imported as
-//! `faro._core`. Exposes ONLY the open-source free-tool surface from
+//! `askfaro._core`. Exposes ONLY the open-source free-tool surface from
 //! `faro-core-free`: version info, free-tool execution, and the canonical
 //! envelope builders. The gate, continuation tokens, and cloud client are NOT
 //! compiled in (they live in the private superset crate).

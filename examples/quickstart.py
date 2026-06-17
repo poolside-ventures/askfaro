@@ -8,7 +8,7 @@ Free tools run on-device, with no API key, no network, no credits. Pass an api_k
 Discovery (search/browse) also needs no key.
 """
 
-from faro import Faro
+from askfaro import Faro
 
 faro = Faro()  # no key needed for on-device tools
 

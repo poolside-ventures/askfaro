@@ -14,7 +14,7 @@ pip install askfaro
 ```
 
 ```python
-from faro import Faro
+from askfaro import Faro
 
 faro = Faro()                                    # no key needed for on-device tools
 r = faro.invoke("calc/evaluate", {"expression": "2 + 2 * 3"})
@@ -26,7 +26,7 @@ faro = Faro(api_key="faro_...")
 faro.run("image", {"prompt": "a red bicycle"})
 ```
 
-The Rust core is compiled into this package (`faro._core`), so a single
+The Rust core is compiled into this package (`askfaro._core`), so a single
 `pip install askfaro` is all you need — there is no separate core package to
 install.
 
@@ -54,6 +54,26 @@ Two execution methods:
 What runs on-device is the bundled core's capability list
 (`Faro.local_namespaces()`), not a pricing flag; it grows as more tools are
 ported into the core.
+
+## Async
+
+For server-side consumers on an event loop (e.g. an async FastAPI backend),
+`AsyncFaro` mirrors `Faro` with awaitable network methods, so you don't wrap calls
+in `asyncio.to_thread`:
+
+```python
+from askfaro import AsyncFaro
+
+async with AsyncFaro(api_key="faro_...") as faro:
+    hits = await faro.search("transcribe an audio file")
+    r = await faro.run("image", {"prompt": "a red bicycle"})
+    assert r.ok
+```
+
+Same constructor, routing, and result types as `Faro`. Only the network methods
+(`search`, `describe`, `browse`, remote `invoke`, `run`) are coroutines; on-device
+`invoke()` runs in the synchronous in-process core (sub-millisecond), so there is
+no blocking I/O to offload.
 
 ## Discovery
 
@@ -85,13 +105,13 @@ manifest = faro.browse(budget="4k")    # navigate via its self-describing `usage
 ```
 
 `search()` is hybrid lexical + semantic over the public catalog; `browse()`
-returns the [progressive-context](https://github.com/poolside-ventures/faro-progressive-context)
+returns the [progressive-context](https://github.com/poolside-ventures/askfaro-progressive-context)
 manifest. Both work with no account. `invoke()` on a paid tool still needs a key
 and credits.
 
 ## What's bundled
 
-`faro._core` is the MIT open-source free-tool slice of the Faro core (the
+`askfaro._core` is the MIT open-source free-tool slice of the Faro core (the
 `faro-core-free` Rust crate): calc, units, phone, astronomy, encoding, datetime,
 timezone, random, and timer, plus the canonical envelope builders. The proprietary
 parts of Faro (selection gate, signed continuations, cloud client, billing) are NOT
@@ -104,13 +124,13 @@ self-contained:
 
 - `core-free/` — the `faro-core-free` Rust crate (the free-tool implementations +
   the canonical envelope)
-- `src/lib.rs` — the PyO3 binding that builds the `faro._core` extension from it
-- `python/faro/` — the pure-Python SDK (routing, client, result types)
+- `src/lib.rs` — the PyO3 binding that builds the `askfaro._core` extension from it
+- `python/askfaro/` — the pure-Python SDK (routing, client, result types)
 - `examples/quickstart.py` — a runnable tour
 
 ```bash
 cargo test -p faro-core-free   # Rust tests
-uv venv && uv pip install ".[dev]"   # builds faro._core via maturin
+uv venv && uv pip install ".[dev]"   # builds askfaro._core via maturin
 .venv/bin/pytest               # Python tests, no network
 python examples/quickstart.py
 ```

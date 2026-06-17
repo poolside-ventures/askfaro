@@ -4,7 +4,7 @@ import httpx
 import pytest
 import respx
 
-from faro import Faro, FaroError, SearchHit
+from askfaro import Faro, FaroError, SearchHit
 
 
 _SEARCH_ENVELOPE = {
@@ -110,7 +110,7 @@ def test_discovery_sends_bearer_when_key_present():
 
 @respx.mock
 def test_discovery_http_error_raises():
-    from faro import RemoteError
+    from askfaro import RemoteError
 
     respx.get("https://api.askfaro.com/tools/search").mock(
         return_value=httpx.Response(503, json={"detail": "down"})

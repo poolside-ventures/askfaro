@@ -1,4 +1,4 @@
-"""On-device execution via the bundled Rust core (`faro._core`).
+"""On-device execution via the bundled Rust core (`askfaro._core`).
 
 The core reports which namespaces it can run via `free_tools()` — that capability
 list is the routing signal, not the catalog's pricing flag. A namespace the core
@@ -13,10 +13,10 @@ from __future__ import annotations
 import json
 from functools import lru_cache
 
-from faro.errors import LocalUnavailableError
+from askfaro.errors import LocalUnavailableError
 
 try:
-    from faro import _core as faro_core  # native extension bundled in this package
+    from askfaro import _core as faro_core  # native extension bundled in this package
 except ImportError:  # pragma: no cover - exercised only if the native build is absent
     faro_core = None
 
@@ -50,8 +50,8 @@ def run_local(namespace: str, tool: str, arguments: dict | None) -> dict:
     """
     if faro_core is None:
         raise LocalUnavailableError(
-            "The embedded Faro core (faro_core) is not installed. "
-            "Install faro-sdk with its core wheel to run tools on-device."
+            "The embedded Faro core (askfaro._core) is not installed. "
+            "Reinstall the askfaro package; its bundled core wheel is missing for this platform."
         )
     if namespace not in local_namespaces():
         raise LocalUnavailableError(

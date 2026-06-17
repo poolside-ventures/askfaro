@@ -1,10 +1,10 @@
 # Workspace root for the open-source Faro slice: the faro-core-free crate and the
-# native binding (faro._core) bundled into the askfaro Python package.
+# native binding (askfaro._core) bundled into the askfaro Python package.
 [workspace]
 members = ["core-free"]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/poolside-ventures/askfaro"
@@ -19,10 +19,10 @@ name = "askfaro-native"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Native core bundled into the askfaro Python package (the faro._core extension)."
+description = "Native core bundled into the askfaro Python package (the askfaro._core extension)."
 
 [lib]
-# Imports as `faro._core` (maturin module-name); the #[pymodule] fn is `_core`.
+# Imports as `askfaro._core` (maturin module-name); the #[pymodule] fn is `_core`.
 name = "_core"
 crate-type = ["cdylib"]
 

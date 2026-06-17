@@ -6,7 +6,7 @@ import httpx
 import pytest
 import respx
 
-from faro import Faro, FaroError, RemoteError
+from askfaro import Faro, FaroError, RemoteError
 
 # The fixed hosted skill agent (Faro infrastructure, not self-hostable).
 SKILL = "https://skill.askfaro.com"
