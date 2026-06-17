@@ -22,7 +22,7 @@ assert r.ok and r.local and r.data["result"] == 8
 
 # Anything beyond the on-device core is a *skill*: the skill agent picks the
 # tools, runs them, enforces your budget, and bills your account.
-faro = Faro(api_key="faro_...", skill_url="https://<your-skill-agent>")
+faro = Faro(api_key="faro_...")
 faro.run("image", {"prompt": "a red bicycle"})
 ```
 
@@ -41,7 +41,8 @@ Two execution methods:
 - **`run("skill", intent)`** runs a **skill**: the skill agent selects the
   operations, calls the underlying tools, enforces your budget, and bills your
   account. This is the path for every capability that isn't an on-device tool.
-  It needs an API key and a skill-agent URL (`skill_url=` / `FARO_SKILL_URL`).
+  It needs an API key, and runs on the hosted skill agent (`skill.askfaro.com`)
+  by default; override with `skill_url=` / `FARO_SKILL_URL` to self-host.
 
 `invoke()` routing (`mode=`, per-call override on `invoke(..., mode=...)`):
 

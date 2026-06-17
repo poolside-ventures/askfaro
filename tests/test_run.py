@@ -18,8 +18,14 @@ def _ok_envelope(status="success", data=None):
     }
 
 
-def test_run_without_skill_url_configured_raises():
-    # The headline "clear error when not configured" case.
+def test_run_defaults_to_hosted_skill_agent():
+    # No skill_url passed -> uses the hosted default (skill.askfaro.com).
+    assert Faro(api_key="faro_test")._skill_url == "https://skill.askfaro.com"
+
+
+def test_run_without_skill_url_configured_raises(monkeypatch):
+    # The "clear error when not configured" guard: force no default.
+    monkeypatch.setattr("faro.client.DEFAULT_SKILL_URL", None)
     with pytest.raises(FaroError) as e:
         Faro(api_key="faro_test").run("image", {"prompt": "a red bicycle"})
     assert "skill-agent url" in str(e.value).lower()

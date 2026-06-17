@@ -15,9 +15,8 @@ from faro.result import InvokeResult, SearchHit
 
 DEFAULT_BASE_URL = "https://api.askfaro.com"
 # Skills run on the skill agent (a separate service: intent in, envelope out), not
-# the core API. There is no stable public default yet, so it must be configured
-# (skill_url=... or FARO_SKILL_URL) until one is wired.
-DEFAULT_SKILL_URL = None
+# the core API. Override with skill_url=... or FARO_SKILL_URL (e.g. self-hosting).
+DEFAULT_SKILL_URL = "https://skill.askfaro.com"
 _MODES = ("auto", "local", "remote")
 
 
@@ -173,8 +172,8 @@ class Faro:
         `intent` is a dict the skill understands, or a plain string (treated as
         `{"prompt": ...}`). Returns an InvokeResult; a run that would cross the
         soft `confirm_above` ceiling comes back with `.status == "needs_input"`
-        (a quote) rather than spending. Requires an API key and a configured
-        skill-agent URL (`skill_url=` / `FARO_SKILL_URL`).
+        (a quote) rather than spending. Requires an API key; runs on the hosted
+        skill agent by default (override with `skill_url=` / `FARO_SKILL_URL`).
 
             faro.run("image", {"prompt": "a red bicycle"})
             faro.run("image", "a red bicycle")            # shorthand

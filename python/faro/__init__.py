@@ -13,8 +13,8 @@ remote results share the identical canonical envelope.
     r.local     # True  (ran on-device)
 
     # Anything beyond the on-device core is a skill: the skill agent runs the
-    # tools and bills you (needs an API key + a skill-agent URL).
-    faro = Faro(api_key="faro_...", skill_url="https://<skill-agent>")
+    # tools and bills you (needs an API key).
+    faro = Faro(api_key="faro_...")
     faro.run("image", {"prompt": "a red bicycle"})
 
 Discovery (no key needed): describe what you want and get a suitable skill, or
