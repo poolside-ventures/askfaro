@@ -41,8 +41,7 @@ Two execution methods:
 - **`run("skill", intent)`** runs a **skill**: the skill agent selects the
   operations, calls the underlying tools, enforces your budget, and bills your
   account. This is the path for every capability that isn't an on-device tool.
-  It needs an API key, and runs on the hosted skill agent (`skill.askfaro.com`)
-  by default; override with `skill_url=` / `FARO_SKILL_URL` to self-host.
+  It needs an API key and runs on Faro's hosted skill agent (`skill.askfaro.com`).
 
 `invoke()` routing (`mode=`, per-call override on `invoke(..., mode=...)`):
 

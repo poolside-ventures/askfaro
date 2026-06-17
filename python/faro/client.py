@@ -14,9 +14,9 @@ from faro.local import (
 from faro.result import InvokeResult, SearchHit
 
 DEFAULT_BASE_URL = "https://api.askfaro.com"
-# Skills run on the skill agent (a separate service: intent in, envelope out), not
-# the core API. Override with skill_url=... or FARO_SKILL_URL (e.g. self-hosting).
-DEFAULT_SKILL_URL = "https://skill.askfaro.com"
+# Skills run on Faro's hosted skill agent (intent in, envelope out), not the core
+# API. It is Faro infrastructure, not self-hostable, so this is fixed.
+SKILL_AGENT_URL = "https://skill.askfaro.com"
 _MODES = ("auto", "local", "remote")
 
 
@@ -50,7 +50,6 @@ class Faro:
         api_key: Optional[str] = None,
         *,
         base_url: str = DEFAULT_BASE_URL,
-        skill_url: Optional[str] = None,
         mode: str = "auto",
         timeout: float = 30.0,
     ):
@@ -58,8 +57,6 @@ class Faro:
             raise FaroError(f"mode must be one of {_MODES}, got {mode!r}.", "validation_error")
         self._api_key = api_key or os.environ.get("FARO_API_KEY")
         self._base_url = base_url.rstrip("/")
-        _skill = skill_url or os.environ.get("FARO_SKILL_URL") or DEFAULT_SKILL_URL
-        self._skill_url = _skill.rstrip("/") if _skill else None
         self.mode = mode
         self._timeout = timeout
         self._http = None  # lazily created only if a remote (authed) call happens
@@ -172,8 +169,7 @@ class Faro:
         `intent` is a dict the skill understands, or a plain string (treated as
         `{"prompt": ...}`). Returns an InvokeResult; a run that would cross the
         soft `confirm_above` ceiling comes back with `.status == "needs_input"`
-        (a quote) rather than spending. Requires an API key; runs on the hosted
-        skill agent by default (override with `skill_url=` / `FARO_SKILL_URL`).
+        (a quote) rather than spending. Requires an API key.
 
             faro.run("image", {"prompt": "a red bicycle"})
             faro.run("image", "a red bicycle")            # shorthand
@@ -186,13 +182,6 @@ class Faro:
             raise FaroError(
                 'run() intent must be a dict or a string, e.g. {"prompt": "..."}.',
                 "validation_error",
-            )
-        if not self._skill_url:
-            raise FaroError(
-                "No skill-agent URL configured. Skills run on the Faro skill agent, "
-                "not the core API. Pass skill_url=... or set FARO_SKILL_URL. "
-                "(On-device tools via invoke() need no skill URL.)",
-                "config_error",
             )
         if not self._api_key:
             raise FaroError(
@@ -277,7 +266,7 @@ class Faro:
             import httpx
 
             self._skill_http = httpx.Client(
-                base_url=self._skill_url,
+                base_url=SKILL_AGENT_URL,
                 headers={"Authorization": f"Bearer {self._api_key}"},
                 timeout=self._timeout,
             )
