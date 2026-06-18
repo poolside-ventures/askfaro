@@ -36,6 +36,7 @@ which mirrors `Faro` with awaitable network methods:
         r = await faro.run("image", {"prompt": "a red bicycle"})
 """
 
+from askfaro._capabilities import Capabilities
 from askfaro.aclient import AsyncFaro
 from askfaro.client import Faro
 from askfaro.errors import (
@@ -46,11 +47,12 @@ from askfaro.errors import (
 )
 from askfaro.result import InvokeResult, SearchHit
 
-__version__ = "0.5.1"
+__version__ = "0.6.0"
 
 __all__ = [
     "Faro",
     "AsyncFaro",
+    "Capabilities",
     "InvokeResult",
     "SearchHit",
     "FaroError",

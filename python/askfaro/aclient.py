@@ -21,6 +21,7 @@ from __future__ import annotations
 import os
 from typing import Optional
 
+from askfaro._capabilities import Capabilities, resolve_capabilities
 from askfaro.client import (
     DEFAULT_BASE_URL,
     SKILL_AGENT_URL,
@@ -45,10 +46,13 @@ class AsyncFaro:
         *,
         base_url: str = DEFAULT_BASE_URL,
         timeout: float = 30.0,
+        capabilities: Capabilities | None = None,
     ):
         self._api_key = api_key or os.environ.get("FARO_API_KEY")
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
+        # See Faro.__init__: resolved once, applied to browse/search/run.
+        self._caps = resolve_capabilities(capabilities)
         self._discovery_http = None  # public discovery endpoints; no key required
         self._skill_http = None  # skill agent (run); created on first run()
 
@@ -92,7 +96,8 @@ class AsyncFaro:
             params["category"] = category
         envelope = await self._get("/tools/search", params)
         items = envelope.get("items", []) if isinstance(envelope, dict) else []
-        return [SearchHit(item) for item in items]
+        hits = [SearchHit(item) for item in items]
+        return [h for h in hits if h.kind != "skill" or self._caps.allows(h.id)]
 
     async def describe(self, tool: str) -> dict:
         """Full input schema, long description, and pricing for one tool.
@@ -105,11 +110,12 @@ class AsyncFaro:
         budget: str | int = "4k",
         *,
         format: str = "json",
+        include: list[str] | None = None,
         exclude: list[str] | None = None,
     ) -> dict:
         """Fetch the progressive-context (pcx) catalog map. No API key required.
         See `Faro.browse` for full parameter documentation."""
-        from askfaro._browse import budget_to_tier, render_manifest_text
+        from askfaro._browse import budget_to_tier, filter_manifest, render_manifest_text
 
         if format not in ("json", "text"):
             raise FaroError(
@@ -119,12 +125,12 @@ class AsyncFaro:
 
         tier = budget_to_tier(budget)
         manifest = await self._get("/pcx/manifest", {"budget": tier})
+        caps = self._caps.overlay(include=include, exclude=exclude)
 
         if format == "json":
-            return manifest
+            return filter_manifest(manifest, caps)
 
-        excl: frozenset[str] = frozenset(exclude) if exclude else frozenset()
-        return {"manifest_text": render_manifest_text(manifest, excl)}
+        return {"manifest_text": render_manifest_text(manifest, caps)}
 
     # ---- invocation ----------------------------------------------------------
 
@@ -168,6 +174,12 @@ class AsyncFaro:
         See `Faro.run`."""
         if not capability or not isinstance(capability, str):
             raise FaroError("run(capability, intent) needs a capability id.", "validation_error")
+        if not self._caps.allows(capability):
+            raise FaroError(
+                f"{capability!r} is excluded by this client's capability config; "
+                f"adjust the Capabilities filter (or askfaro.toml) to run it.",
+                "capability_excluded",
+            )
         if isinstance(intent, str):
             intent = {"prompt": intent}
         if not isinstance(intent, dict):
