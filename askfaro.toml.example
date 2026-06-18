@@ -1,0 +1,15 @@
+# askfaro.toml — capability curation for an integration.
+#
+# Drop this file (renamed to `askfaro.toml`) anywhere at or above your working
+# directory. Both the askfaro SDK and the askfaro CLI read the SAME schema: an
+# integration declares which capabilities it uses ONCE here, and every browse /
+# search / run automatically respects it. No per-call flags, no dashboard.
+#
+# This is client-side self-curation, not a server-enforced boundary.
+
+[capabilities]
+# Blocklist: hide these skill ids (everything else stays available).
+exclude = ["web-search", "research", "image"]
+
+# Allowlist (mutually useful alternative): if set, ONLY these are available.
+# include = ["image", "weather", "maps"]
