@@ -115,7 +115,7 @@ class AsyncFaro:
     ) -> dict:
         """Fetch the progressive-context (pcx) catalog map. No API key required.
         See `Faro.browse` for full parameter documentation."""
-        from askfaro._browse import budget_to_tier, filter_manifest, render_manifest_text
+        from askfaro._browse import budget_to_tier, budget_to_tokens, filter_manifest, render_budget_text
 
         if format not in ("json", "text"):
             raise FaroError(
@@ -130,7 +130,18 @@ class AsyncFaro:
         if format == "json":
             return filter_manifest(manifest, caps)
 
-        return {"manifest_text": render_manifest_text(manifest, caps)}
+        return {"manifest_text": render_budget_text(manifest, budget_to_tokens(budget), caps)}
+
+    async def navigator(self, budget: str | int = "4k", *, include: list[str] | None = None, exclude: list[str] | None = None):
+        """A budget-sized, capability-filtered `NavSession` over the catalog.
+        See `Faro.navigator`. (The fetch is awaited; navigation is then local.)"""
+        from askfaro._browse import budget_to_tier, budget_to_tokens, filter_manifest
+        from askfaro_progressive_context import Manifest, NavSession
+
+        caps = self._caps.overlay(include=include, exclude=exclude)
+        manifest = await self._get("/pcx/manifest", {"budget": budget_to_tier(budget)})
+        m = Manifest.from_dict(filter_manifest(manifest, caps))
+        return NavSession(m, budget=budget_to_tokens(budget))
 
     # ---- invocation ----------------------------------------------------------
 

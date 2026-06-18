@@ -9,15 +9,21 @@ from askfaro import Capabilities, Faro, FaroError
 
 API = "https://api.askfaro.com"
 
+def _leaf(what, skill_id):
+    return {"what": what, "when": "", "skill_id": skill_id, "payload": {"ref": f"node://{skill_id}"}}
+
+
 _PCX_MANIFEST = {
     "usage": "...",
-    "root": {"id": "root", "children": ["cat-web", "cat-data"]},
+    "source": {},
+    "variant": {"budget": 4096},
+    "root": {"id": "root", "what": "root", "when": "", "children": ["cat-web", "cat-data"]},
     "nodes": {
-        "cat-web": {"title": "Web", "what": "Web capabilities", "children": ["n-web-search", "n-research"]},
-        "cat-data": {"title": "Data", "what": "Data capabilities", "children": ["n-weather"]},
-        "n-web-search": {"title": "Web Search", "what": "search the web", "skill_id": "web-search"},
-        "n-research": {"title": "Research", "what": "cited research", "skill_id": "research"},
-        "n-weather": {"title": "Weather", "what": "forecasts", "skill_id": "weather"},
+        "cat-web": {"title": "Web", "what": "Web capabilities", "when": "", "children": ["n-web-search", "n-research"]},
+        "cat-data": {"title": "Data", "what": "Data capabilities", "when": "", "children": ["n-weather"]},
+        "n-web-search": _leaf("search the web", "web-search"),
+        "n-research": _leaf("cited research", "research"),
+        "n-weather": _leaf("forecasts", "weather"),
     },
 }
 
@@ -121,6 +127,33 @@ def test_browse_per_call_exclude_overrides_config():
     manifest = faro.browse(exclude=["weather"])
     assert "n-weather" not in manifest["nodes"]
     assert "n-web-search" in manifest["nodes"]
+
+
+@respx.mock
+def test_browse_text_lists_skills_with_run_ids():
+    respx.get(f"{API}/pcx/manifest").mock(return_value=httpx.Response(200, json=_PCX_MANIFEST))
+    text = Faro().browse(format="text")["manifest_text"]
+    # Categories that fit list their skills as `skill_id: what`, runnable directly.
+    assert "## Web" in text and "## Data" in text
+    assert "web-search: search the web" in text
+    assert "weather: forecasts" in text
+
+
+@respx.mock
+def test_browse_text_tiny_budget_pushes_categories_to_overflow():
+    respx.get(f"{API}/pcx/manifest").mock(return_value=httpx.Response(200, json=_PCX_MANIFEST))
+    # A budget too small to expand any category leaves them as openable headers.
+    text = Faro().browse(15, format="text")["manifest_text"]
+    assert "open to reveal" in text.lower()
+
+
+@respx.mock
+def test_navigator_returns_budget_sized_navsession():
+    respx.get(f"{API}/pcx/manifest").mock(return_value=httpx.Response(200, json=_PCX_MANIFEST))
+    nav = Faro().navigator(budget=1500)
+    assert nav.rt.effective_budget == 1500
+    idx = nav.index()  # the budget-bounded starting view (categories)
+    assert "Web" in idx and "Data" in idx
 
 
 # ---- applied to search -------------------------------------------------------

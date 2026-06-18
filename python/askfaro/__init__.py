@@ -47,7 +47,7 @@ from askfaro.errors import (
 )
 from askfaro.result import InvokeResult, SearchHit
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 
 __all__ = [
     "Faro",

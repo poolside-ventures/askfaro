@@ -88,10 +88,24 @@ def test_describe_bad_identifier_raises():
         Faro().describe("not-a-tool-id")
 
 
+def _pcx_leaf(title, what, skill_id):
+    return {
+        "title": title,
+        "what": what,
+        "when": "...",
+        "skill_id": skill_id,
+        "payload": {"ref": f"node://{skill_id}"},
+    }
+
+
 _PCX_MANIFEST = {
     "usage": "...",
+    "source": {},
+    "variant": {"budget": 4096},
     "root": {
         "id": "root",
+        "what": "root",
+        "when": "",
         "children": ["cat-web", "cat-data"],
     },
     "nodes": {
@@ -107,24 +121,9 @@ _PCX_MANIFEST = {
             "when": "...",
             "children": ["node-weather"],
         },
-        "node-web-search": {
-            "title": "Web Search",
-            "what": "Search the web for current information.",
-            "when": "...",
-            "skill_id": "web-search",
-        },
-        "node-research": {
-            "title": "Research",
-            "what": "Deep research with cited sources.",
-            "when": "...",
-            "skill_id": "research",
-        },
-        "node-weather": {
-            "title": "Weather",
-            "what": "Current and forecast weather for any location.",
-            "when": "...",
-            "skill_id": "weather",
-        },
+        "node-web-search": _pcx_leaf("Web Search", "Search the web for current information.", "web-search"),
+        "node-research": _pcx_leaf("Research", "Deep research with cited sources.", "research"),
+        "node-weather": _pcx_leaf("Weather", "Current and forecast weather for any location.", "weather"),
     },
 }
 

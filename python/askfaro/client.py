@@ -136,14 +136,16 @@ class Faro:
                 integer (e.g. 1500) to size the catalog to any context window — the
                 on-device use-case wants ~1k-2k.
             format: "json" (default) returns the raw pcx manifest dict for
-                programmatic navigation. "text" returns an inject-ready
-                markdown/plaintext catalog in {"manifest_text": "..."} — each line
-                carries the skill_id so the agent can call
-                run(capability=<id>) directly.
+                programmatic navigation (drive it with `navigator()`). "text"
+                returns an inject-ready markdown catalog in {"manifest_text": "..."},
+                disclosed to fit `budget` via progressive-context — categories that
+                fit list their skills (`skill_id: what`, ready for run(skill_id)),
+                the rest are left as openable headers. Budget-bounded by real token
+                accounting, not truncation.
             include: Skill ids to restrict to for this call (allowlist override).
             exclude: Skill ids to drop for this call (added to the configured set).
         """
-        from askfaro._browse import budget_to_tier, filter_manifest, render_manifest_text
+        from askfaro._browse import budget_to_tier, budget_to_tokens, filter_manifest, render_budget_text
 
         if format not in ("json", "text"):
             raise FaroError(
@@ -158,7 +160,25 @@ class Faro:
         if format == "json":
             return filter_manifest(manifest, caps)
 
-        return {"manifest_text": render_manifest_text(manifest, caps)}
+        return {"manifest_text": render_budget_text(manifest, budget_to_tokens(budget), caps)}
+
+    def navigator(self, budget: str | int = "4k", *, include: list[str] | None = None, exclude: list[str] | None = None):
+        """A progressive-context `NavSession` over the catalog, sized to `budget`
+        and pre-filtered by your capability config. Drive it locally — `index()`,
+        `look(ids)`, `open(id)` — to disclose the catalog one branch at a time
+        instead of injecting it whole. Requires `askfaro-progressive-context`.
+
+            nav = faro.navigator(budget=1500)
+            print(nav.index())          # the budget-bounded starting view
+            nav.open("cat-images")      # reveal that category's skills on demand
+        """
+        from askfaro._browse import budget_to_tier, budget_to_tokens, filter_manifest
+        from askfaro_progressive_context import Manifest, NavSession
+
+        caps = self._caps.overlay(include=include, exclude=exclude)
+        manifest = self._get("/pcx/manifest", {"budget": budget_to_tier(budget)})
+        m = Manifest.from_dict(filter_manifest(manifest, caps))
+        return NavSession(m, budget=budget_to_tokens(budget))
 
     # ---- invocation ----------------------------------------------------------
 
