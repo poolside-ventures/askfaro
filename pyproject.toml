@@ -22,8 +22,9 @@ dependencies = [
     "httpx>=0.28.0",
     # Read askfaro.toml capability config on Python < 3.11 (tomllib is stdlib from 3.11).
     "tomli>=2.0; python_version < '3.11'",
-    # Budget-bounded catalog navigation for browse() (Runtime/Manifest). Pure Python.
-    "askfaro-progressive-context>=0.2.0",
+    # Budget-bounded catalog navigation + ETag-revalidated manifest caching for
+    # browse()/navigator() (Runtime/Manifest/ManifestLoader). Pure Python.
+    "askfaro-progressive-context>=0.3.0",
 ]
 dynamic = ["version"]
 

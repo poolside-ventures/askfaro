@@ -147,6 +147,21 @@ manifest = faro.browse(budget="4k")    # navigate via its self-describing `usage
 returns the [progressive-context](https://github.com/poolside-ventures/askfaro-progressive-context)
 manifest. Both work with no account. `run()` on a paid skill needs a key and credits.
 
+`browse()` and `navigator()` **cache the manifest on disk and revalidate by ETag**
+(the catalog changes only on a rebuild), so repeat calls cost a cheap `304`, not a
+full re-download — and a rebuilt catalog is always picked up. The cache lives under
+`~/.cache/askfaro/pcx` (shared with the `askfaro` CLI) and is keyed by API host +
+budget. Control it per client:
+
+```python
+Faro()                                  # default: on-disk cache
+Faro(manifest_cache=False)              # in-memory only, no disk writes
+Faro(manifest_cache="/tmp/my-cache")   # a directory of your choosing
+```
+
+This uses progressive-context's `ManifestLoader` / `AsyncManifestLoader`, so the
+async `AsyncFaro` revalidates the same way.
+
 ## What's bundled
 
 `askfaro._core` is the MIT open-source free-tool slice of the Faro core (the

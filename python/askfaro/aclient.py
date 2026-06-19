@@ -47,6 +47,7 @@ class AsyncFaro:
         base_url: str = DEFAULT_BASE_URL,
         timeout: float = 30.0,
         capabilities: Capabilities | None = None,
+        manifest_cache: bool | str | os.PathLike = True,
     ):
         self._api_key = api_key or os.environ.get("FARO_API_KEY")
         self._base_url = base_url.rstrip("/")
@@ -55,6 +56,9 @@ class AsyncFaro:
         self._caps = resolve_capabilities(capabilities)
         self._discovery_http = None  # public discovery endpoints; no key required
         self._skill_http = None  # skill agent (run); created on first run()
+        # See Faro.__init__: browse()/navigator() cache the pcx manifest by ETag.
+        self._manifest_cache = manifest_cache
+        self._manifest_store = None
 
     # ---- capability introspection -------------------------------------------
     # Local capability is a property of the in-process core, not the event loop,
@@ -124,7 +128,7 @@ class AsyncFaro:
             )
 
         tier = budget_to_tier(budget)
-        manifest = await self._get("/pcx/manifest", {"budget": tier})
+        manifest = await self._cached_manifest(tier)
         caps = self._caps.overlay(include=include, exclude=exclude)
 
         if format == "json":
@@ -139,7 +143,7 @@ class AsyncFaro:
         from askfaro_progressive_context import Manifest, NavSession
 
         caps = self._caps.overlay(include=include, exclude=exclude)
-        manifest = await self._get("/pcx/manifest", {"budget": budget_to_tier(budget)})
+        manifest = await self._cached_manifest(budget_to_tier(budget))
         m = Manifest.from_dict(filter_manifest(manifest, caps))
         return NavSession(m, budget=budget_to_tokens(budget))
 
@@ -274,6 +278,10 @@ class AsyncFaro:
             resp = await client.get(path, params=params)
         except Exception as e:  # httpx network/timeout errors
             raise RemoteError(f"Network error calling Faro: {e}", "network_error", retryable=True)
+        return self._json_or_raise(resp)
+
+    @staticmethod
+    def _json_or_raise(resp):
         if resp.is_success:
             return resp.json()
         try:
@@ -282,6 +290,28 @@ class AsyncFaro:
             detail = resp.text
         retryable = resp.status_code >= 500 or resp.status_code == 429
         raise RemoteError(str(detail), "remote_error", status=resp.status_code, retryable=retryable)
+
+    async def _conditional_get(self, path: str, params: dict | None, etag: str | None):
+        """Async GET that surfaces a 304 for ETag revalidation; returns
+        (status_code, response_etag, body). Used by the manifest cache."""
+        client = self._ensure_discovery_http()
+        headers = {"If-None-Match": etag} if etag else {}
+        try:
+            resp = await client.get(path, params=params, headers=headers)
+        except Exception as e:
+            raise RemoteError(f"Network error calling Faro: {e}", "network_error", retryable=True)
+        if resp.status_code == 304:
+            return 304, resp.headers.get("ETag") or etag, None
+        return resp.status_code, resp.headers.get("ETag"), self._json_or_raise(resp)
+
+    async def _cached_manifest(self, tier: str) -> dict:
+        """The pcx manifest for `tier`, served from the cache and revalidated by
+        ETag. Shared by browse() and navigator()."""
+        from askfaro._pcx_cache import aload_manifest, make_store
+
+        if self._manifest_store is None:
+            self._manifest_store = make_store(self._manifest_cache)
+        return await aload_manifest(self._conditional_get, self._base_url, tier, self._manifest_store)
 
     # ---- lifecycle -----------------------------------------------------------
 
