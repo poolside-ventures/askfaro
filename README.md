@@ -65,6 +65,12 @@ on-device execution of a specific core tool and raises if it can't run there. Mo
 callers should just use `run()`; reach for `invoke()` only when a call must stay
 local (e.g. a hard no-network guarantee).
 
+**Tiers.** Every capability runs at one of two tiers: `local` (the bundled core
+runs it deterministically on-device — a guarantee) or `remote` (the hosted skill
+agent exercises judgment and bills you). `faro.tier_of("image")` tells you which
+*without running it*, and `faro.run(..., require_tier="local")` refuses to fall
+through to the billed path — routing is never silently degraded across tiers.
+
 ## Results & errors
 
 `run()` (and `invoke()`) returns an `InvokeResult` (the canonical envelope). Read

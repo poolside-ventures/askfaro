@@ -16,6 +16,11 @@ from askfaro.local import (
 from askfaro.result import InvokeResult, SearchHit
 
 DEFAULT_BASE_URL = "https://api.askfaro.com"
+# Execution tiers: a capability runs either on-device in the core (a deterministic
+# guarantee) or on the hosted skill agent (judgment + billed). See tier_of().
+TIER_LOCAL = "local"
+TIER_REMOTE = "remote"
+_TIERS = (TIER_LOCAL, TIER_REMOTE)
 # Skills run on Faro's hosted skill agent (intent in, envelope out), not the core
 # API. It is Faro infrastructure, not self-hostable, so this is fixed.
 SKILL_AGENT_URL = "https://skill.askfaro.com"
@@ -209,6 +214,22 @@ class Faro:
             )
         return InvokeResult(run_local(namespace, name, arguments), local=True)
 
+    def tier_of(self, capability: str) -> str:
+        """Which execution tier `capability` will run at, WITHOUT running it:
+
+        - ``"local"`` — the bundled core runs it deterministically on-device
+          (free, offline, no key) — a *guarantee*;
+        - ``"remote"`` — it goes to the hosted skill agent, which exercises
+          *judgment* (selects tools) and bills your account.
+
+        Lets a caller route or gate on the tier up front (see `run(require_tier=)`)
+        instead of discovering it only by what a run happened to cost.
+        """
+        if not capability or not isinstance(capability, str):
+            raise FaroError("tier_of(capability) needs a capability id.", "validation_error")
+        namespace, _ = split_skill_id(capability)
+        return TIER_LOCAL if can_run_local(namespace) else TIER_REMOTE
+
     # ---- capability execution -------------------------------------------------
     # run() is the single transparent entry. On-device vs. server is an internal
     # optimization: if the bundled core can run the capability it does (free,
@@ -224,6 +245,7 @@ class Faro:
         confirm_above: float | None = None,
         continuation: str | None = None,
         idempotency_key: str | None = None,
+        require_tier: str | None = None,
     ) -> InvokeResult:
         """Run a capability end-to-end: intent in, normalized envelope out.
 
@@ -249,6 +271,11 @@ class Faro:
         the server path; on-device runs are free and deterministic, so they are moot
         there and ignored.
 
+        Pass `require_tier="local"` to *guarantee* a run stays on-device (it raises
+        rather than fall through to the billed skill agent) — a generalization of
+        `invoke()` that keeps the `run()` surface. `require_tier="remote"` requires
+        the judgment path. See `tier_of()` to check the tier without running.
+
             faro.run("astronomy", {"latitude": 48.85, "longitude": 2.35})  # on-device
             faro.run("image", {"prompt": "a red bicycle"})                 # server
             faro.run("image", "a red bicycle")                             # shorthand
@@ -273,7 +300,23 @@ class Faro:
         # Transparent on-device routing: if the core can run this capability's
         # namespace, execute in-core — no key, no network, same envelope.
         namespace, operation = split_skill_id(capability)
-        if can_run_local(namespace):
+        actual_tier = TIER_LOCAL if can_run_local(namespace) else TIER_REMOTE
+        if require_tier is not None:
+            if require_tier not in _TIERS:
+                raise FaroError(
+                    f"require_tier must be one of {list(_TIERS)}, got {require_tier!r}.",
+                    "validation_error",
+                )
+            if actual_tier != require_tier:
+                raise FaroError(
+                    f"{capability!r} runs on the {actual_tier!r} tier, but require_tier="
+                    f"{require_tier!r} was requested. Routing is not degraded across tiers: a "
+                    f"'local' guarantee refuses a capability the core can't run, and 'remote' "
+                    f"refuses one that would silently run on-device.",
+                    "tier_unavailable",
+                )
+
+        if actual_tier == TIER_LOCAL:
             return InvokeResult(run_local(namespace, operation, intent), local=True)
 
         if not self._api_key:

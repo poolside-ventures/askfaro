@@ -28,6 +28,7 @@ from askfaro.client import (
     _split,
 )
 from askfaro.errors import FaroError, RemoteError
+from askfaro.client import TIER_LOCAL, TIER_REMOTE, _TIERS
 from askfaro.local import can_run_local, local_namespaces, run_local, split_skill_id
 from askfaro.result import InvokeResult, SearchHit
 
@@ -168,6 +169,15 @@ class AsyncFaro:
             )
         return InvokeResult(run_local(namespace, name, arguments), local=True)
 
+    def tier_of(self, capability: str) -> str:
+        """Which execution tier `capability` will run at without running it:
+        ``"local"`` (in-core, guaranteed) or ``"remote"`` (skill agent, billed).
+        See `Faro.tier_of`."""
+        if not capability or not isinstance(capability, str):
+            raise FaroError("tier_of(capability) needs a capability id.", "validation_error")
+        namespace, _ = split_skill_id(capability)
+        return TIER_LOCAL if can_run_local(namespace) else TIER_REMOTE
+
     # ---- capability execution -------------------------------------------------
 
     async def run(
@@ -179,6 +189,7 @@ class AsyncFaro:
         confirm_above: float | None = None,
         continuation: str | None = None,
         idempotency_key: str | None = None,
+        require_tier: str | None = None,
     ) -> InvokeResult:
         """Run a capability end-to-end: intent in, normalized envelope out.
 
@@ -206,7 +217,21 @@ class AsyncFaro:
         # Transparent on-device routing: the synchronous in-core path has no I/O to
         # await, so it returns directly — no key, no network, same envelope.
         namespace, operation = split_skill_id(capability)
-        if can_run_local(namespace):
+        actual_tier = TIER_LOCAL if can_run_local(namespace) else TIER_REMOTE
+        if require_tier is not None:
+            if require_tier not in _TIERS:
+                raise FaroError(
+                    f"require_tier must be one of {list(_TIERS)}, got {require_tier!r}.",
+                    "validation_error",
+                )
+            if actual_tier != require_tier:
+                raise FaroError(
+                    f"{capability!r} runs on the {actual_tier!r} tier, but require_tier="
+                    f"{require_tier!r} was requested. Routing is not degraded across tiers.",
+                    "tier_unavailable",
+                )
+
+        if actual_tier == TIER_LOCAL:
             return InvokeResult(run_local(namespace, operation, intent), local=True)
 
         if not self._api_key:
