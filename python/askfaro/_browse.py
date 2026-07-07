@@ -72,18 +72,57 @@ def filter_manifest(manifest: dict, caps: Capabilities) -> dict:
     return {**manifest, "root": {**root, "children": kept_cats}, "nodes": kept_nodes}
 
 
+def facet_legend(manifest: dict, *, max_values: int = 10) -> str:
+    """A compact one-block legend of the facets available to filter on, so a
+    browsing agent narrows *before* scanning descriptors instead of after. Only
+    keys with more than one distinct value are shown (a single-valued facet has no
+    filtering power). Empty string when the map carries no useful facets.
+
+    This is the cheap half of pcx v0.2 surfacing: the facet space is small and
+    high-value for precision, so it goes inline. See-also cross-links are the
+    expensive half (per-node, only useful once you've opened something) and stay
+    on-demand via `navigator().related()`.
+    """
+    values: dict[str, list[str]] = {}
+    for node in manifest.get("nodes", {}).values():
+        for k, v in (node.get("facets") or {}).items():
+            bucket = values.setdefault(k, [])
+            if v not in bucket:
+                bucket.append(v)
+    keys = {k: sorted(vs) for k, vs in values.items() if len(vs) > 1}
+    if not keys:
+        return ""
+    lines = ["## Facets — filter before scanning",
+             "Narrow with `navigator().filter(key=value)` (or `GET /pcx/filter?facets=key:value`) before reading descriptors:"]
+    for k in sorted(keys):
+        vs = keys[k]
+        shown = ", ".join(vs[:max_values])
+        if len(vs) > max_values:
+            shown += f", … ({len(vs)} total)"
+        lines.append(f"- {k}: {shown}")
+    return "\n".join(lines)
+
+
 def render_budget_text(manifest: dict, budget_tokens: int, caps: Capabilities) -> str:
     """An inject-ready markdown catalog disclosed as deeply as `budget_tokens`
-    allows. Categories that fit have their skills listed (`skill_id: what`);
-    categories that don't are left as openable headers. Budget-bounded by PCX's
-    own token accounting — no content is truncated.
+    allows. Leads with a compact facet legend (filter-first precision), then lists
+    categories that fit with their skills (`skill_id: what`); categories that
+    don't are left as openable headers. Budget-bounded by PCX's own token
+    accounting — the legend's cost is subtracted from the tree's budget so the
+    whole render stays within `budget_tokens`; no content is truncated.
     """
-    from askfaro_progressive_context import Manifest, Runtime
+    from askfaro_progressive_context import Manifest, Runtime, estimate_tokens
 
-    m = Manifest.from_dict(filter_manifest(manifest, caps))
+    filtered = filter_manifest(manifest, caps)
+    legend = facet_legend(filtered)
+    # Reserve the legend's tokens out of the tree budget so the combined text
+    # honors budget_tokens. Floor keeps at least a usable tree budget.
+    tree_budget = max(budget_tokens - estimate_tokens(legend), 256) if legend else budget_tokens
+
+    m = Manifest.from_dict(filtered)
     # `brief` descriptor accounting (title + what) matches what we render
     # (`skill_id: what`), so the budget isn't spent on `when`/keywords we omit.
-    rt = Runtime(m, budget=budget_tokens, view_level="brief")
+    rt = Runtime(m, budget=tree_budget, view_level="brief")
 
     sections: list[str] = []
     overflow: list[str] = []
@@ -106,4 +145,4 @@ def render_budget_text(manifest: dict, budget_tokens: int, caps: Capabilities) -
     if overflow:
         more = "## More — open to reveal\n" + "\n".join(overflow)
         text = f"{text}\n\n{more}" if text else more
-    return text
+    return f"{legend}\n\n{text}" if legend else text

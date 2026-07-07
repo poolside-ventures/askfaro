@@ -146,12 +146,40 @@ faro.describe("audio-intelligence/transcribe")
 
 # Browse instead of search: a progressive-context (pcx) map you expand one branch
 # at a time, sized for small / on-device context windows:
-manifest = faro.browse(budget="4k")    # navigate via its self-describing `usage` field
+manifest = faro.browse(budget="4k")               # raw manifest dict (drive with navigator())
+text = faro.browse(budget="4k", format="text")    # inject-ready markdown catalog
 ```
 
 `search()` is hybrid lexical + semantic over the public catalog; `browse()`
 returns the [progressive-context](https://github.com/poolside-ventures/askfaro-progressive-context)
 manifest. Both work with no account. `run()` on a paid skill needs a key and credits.
+
+### Narrow before you scan: facets and see-also links
+
+The catalog map carries two navigation aids beyond the tree, and reaching for them
+first is cheaper than scanning descriptors:
+
+- **Facets** — orthogonal tags (`category`, `output`, …) you can filter on *before*
+  reading anything. `browse(format="text")` leads with a compact **facet legend** of
+  what's filterable, and a `NavSession` filters by them locally:
+
+  ```python
+  nav = faro.navigator(budget="4k")
+  finance = nav.filter(category="Finance & Markets")   # node ids matching every facet
+  ```
+
+- **See-also cross-links** — when a node is *close but not exactly* what you want,
+  follow its lateral links to related nodes in other branches instead of restarting
+  the search. Each carries a `why` phrase explaining the relation:
+
+  ```python
+  for entry in nav.related("skill-image"):             # e.g. image → video
+      print(entry.node_id, entry.meta.get("link_why"))
+  ```
+
+  Cross-links stay **on-demand** (they're per-node and only matter once you've opened
+  something), so `browse(format="text")` does not inline them — call `related()` when
+  you land close. The facet legend, being small and useful up front, is inlined.
 
 `browse()` and `navigator()` **cache the manifest on disk and revalidate by ETag**
 (the catalog changes only on a rebuild), so repeat calls cost a cheap `304`, not a

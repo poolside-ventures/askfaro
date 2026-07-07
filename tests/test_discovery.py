@@ -158,6 +158,56 @@ def test_browse_integer_budget_large_maps_to_32k():
     assert route.calls.last.request.url.params["budget"] == "32k"
 
 
+def test_facet_legend_lists_multivalued_keys_only():
+    from askfaro._browse import facet_legend
+
+    manifest = {
+        "nodes": {
+            "a": {"facets": {"kind": "skill", "category": "Web", "output": "information"}},
+            "b": {"facets": {"kind": "skill", "category": "Data", "output": "file"}},
+            "c": {"facets": {"kind": "skill", "category": "Web"}},
+        }
+    }
+    legend = facet_legend(manifest)
+    # `kind` is single-valued (all skill) → no filtering power → omitted.
+    assert "kind" not in legend
+    # `category` and `output` discriminate → shown with sorted values.
+    assert "- category: Data, Web" in legend
+    assert "- output: file, information" in legend
+    assert "filter" in legend.lower()
+
+
+def test_facet_legend_empty_when_no_useful_facets():
+    from askfaro._browse import facet_legend
+
+    assert facet_legend({"nodes": {"a": {}, "b": {"facets": {"kind": "skill"}}}}) == ""
+
+
+@respx.mock
+def test_browse_text_leads_with_facet_legend():
+    manifest = {
+        "usage": "...",
+        "source": {},
+        "variant": {"budget": 4096},
+        "root": {"id": "root", "what": "root", "when": "", "children": ["cat-web", "cat-data"]},
+        "nodes": {
+            "cat-web": {"title": "Web", "what": "Web capabilities", "when": "...", "children": ["node-web-search"]},
+            "cat-data": {"title": "Data", "what": "Data capabilities", "when": "...", "children": ["node-weather"]},
+            "node-web-search": {**_pcx_leaf("Web Search", "Search the web.", "web-search"),
+                                "facets": {"category": "Web", "output": "information"}},
+            "node-weather": {**_pcx_leaf("Weather", "Forecasts.", "weather"),
+                             "facets": {"category": "Data", "output": "file"}},
+        },
+    }
+    respx.get("https://api.askfaro.com/pcx/manifest").mock(return_value=httpx.Response(200, json=manifest))
+    text = Faro().browse(format="text")["manifest_text"]
+    # Legend leads, then the tree — and see-also links are NOT inlined (on-demand).
+    assert text.startswith("## Facets — filter before scanning")
+    assert "- category: Data, Web" in text
+    assert "## Web" in text and "web-search: Search the web." in text
+    assert "see also" not in text.lower()
+
+
 @respx.mock
 def test_browse_format_text_returns_manifest_text():
     respx.get("https://api.askfaro.com/pcx/manifest").mock(
