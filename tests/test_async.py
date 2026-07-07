@@ -93,3 +93,14 @@ async def test_remote_error_raises():
     async with AsyncFaro() as faro:
         with pytest.raises(RemoteError):
             await faro.search("anything")
+
+
+async def test_async_tier_of_and_require_tier():
+    # tier_of mirrors the sync client; require_tier gates identically.
+    async with AsyncFaro(api_key="faro_x") as faro:
+        assert faro.tier_of("image") == "remote"
+        with pytest.raises(FaroError) as ei:
+            await faro.run("image", "a red bike", require_tier="local")
+        assert ei.value.code == "tier_unavailable"
+        with pytest.raises(FaroError):
+            await faro.run("image", "a red bike", require_tier="bogus")
