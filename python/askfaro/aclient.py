@@ -104,11 +104,17 @@ class AsyncFaro:
         hits = [SearchHit(item) for item in items]
         return [h for h in hits if h.kind != "skill" or self._caps.allows(h.id)]
 
-    async def describe(self, tool: str) -> dict:
-        """Full input schema, long description, and pricing for one tool.
-        No API key required."""
-        namespace, name = _split(tool)
-        return await self._get(f"/tools/{namespace}/{name}")
+    async def describe(self, target: str) -> dict:
+        """Schema for a skill or a raw tool. No API key required.
+
+        A bare id (e.g. "contact-data") is a SKILL: returns its capability — the
+        intent inputs and priced operations you send to `run` — via
+        `GET /catalog/public/{id}`. A "namespace/tool" returns a raw tool's full
+        input schema and pricing via `GET /tools/{namespace}/{tool}`."""
+        if "/" in target or "." in target:
+            namespace, name = _split(target)
+            return await self._get(f"/tools/{namespace}/{name}")
+        return await self._get(f"/catalog/public/{target}")
 
     async def browse(
         self,

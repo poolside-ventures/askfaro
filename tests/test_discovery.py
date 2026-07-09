@@ -83,9 +83,23 @@ def test_describe_hits_tool_detail():
     assert data["namespace"] == "weather"
 
 
-def test_describe_bad_identifier_raises():
-    with pytest.raises(FaroError):
-        Faro().describe("not-a-tool-id")
+@respx.mock
+def test_describe_skill_id_hits_capability():
+    """A bare id is a SKILL: describe returns its public capability (intent inputs +
+    priced operations) from /catalog/public/{id}, not the raw-tool endpoint."""
+    route = respx.get("https://api.askfaro.com/catalog/public/contact-data").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "id": "contact-data",
+                "capability": {"inputs": {"company_domain": "..."}, "operations": []},
+            },
+        )
+    )
+    data = Faro().describe("contact-data")
+    assert route.called
+    assert data["id"] == "contact-data"
+    assert "inputs" in data["capability"]
 
 
 def _pcx_leaf(title, what, skill_id):

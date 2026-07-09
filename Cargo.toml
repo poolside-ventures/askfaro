@@ -4,7 +4,7 @@
 members = ["core-free"]
 
 [workspace.package]
-version = "0.10.0"
+version = "0.10.1"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/poolside-ventures/askfaro"
