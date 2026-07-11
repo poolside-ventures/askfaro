@@ -161,7 +161,7 @@ def test_navigator_returns_budget_sized_navsession():
 
 @respx.mock
 def test_search_hides_excluded_skills():
-    respx.get(f"{API}/tools/search").mock(return_value=httpx.Response(200, json=_SEARCH))
+    respx.post(f"{API}/tools/search").mock(return_value=httpx.Response(200, json=_SEARCH))
     faro = Faro(capabilities=Capabilities(exclude=["web-search"]))
     hits = faro.search("anything")
     ids = {h.id for h in hits}

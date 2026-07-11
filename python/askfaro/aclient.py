@@ -96,10 +96,16 @@ class AsyncFaro:
         public catalog. No API key required. See `Faro.search`."""
         if not query or not query.strip():
             raise FaroError("search(query) needs a non-empty query.", "validation_error")
-        params: dict = {"q": query, "limit": limit}
+        body: dict = {"q": query, "limit": limit}
         if category:
-            params["category"] = category
-        envelope = await self._get("/tools/search", params)
+            body["category"] = category
+        # POST keeps conversation-derived queries out of URLs and access logs;
+        # fall back to GET for servers that predate POST /tools/search.
+        resp = await self._post("/tools/search", body)
+        if resp.status_code in (404, 405):
+            envelope = await self._get("/tools/search", body)
+        else:
+            envelope = self._json_or_raise(resp)
         items = envelope.get("items", []) if isinstance(envelope, dict) else []
         hits = [SearchHit(item) for item in items]
         return [h for h in hits if h.kind != "skill" or self._caps.allows(h.id)]
@@ -310,6 +316,15 @@ class AsyncFaro:
         except Exception as e:  # httpx network/timeout errors
             raise RemoteError(f"Network error calling Faro: {e}", "network_error", retryable=True)
         return self._json_or_raise(resp)
+
+    async def _post(self, path: str, body: dict):
+        """POST returning the raw response (callers decide how to handle
+        status, e.g. search's GET fallback on 404/405)."""
+        client = self._ensure_discovery_http()
+        try:
+            return await client.post(path, json=body)
+        except Exception as e:  # httpx network/timeout errors
+            raise RemoteError(f"Network error calling Faro: {e}", "network_error", retryable=True)
 
     @staticmethod
     def _json_or_raise(resp):

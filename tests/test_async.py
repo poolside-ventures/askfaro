@@ -35,7 +35,7 @@ async def test_invoke_non_core_namespace_raises_pointing_to_run():
 
 @respx.mock
 async def test_search_returns_hits():
-    respx.get(f"{API}/tools/search").mock(
+    respx.post(f"{API}/tools/search").mock(
         return_value=httpx.Response(
             200,
             json={"items": [{"object_type": "skill", "skill_id": "image", "short_description": "make images"}]},
@@ -89,7 +89,7 @@ async def test_run_without_key_raises():
 
 @respx.mock
 async def test_remote_error_raises():
-    respx.get(f"{API}/tools/search").mock(return_value=httpx.Response(503, json={"detail": "down"}))
+    respx.post(f"{API}/tools/search").mock(return_value=httpx.Response(503, json={"detail": "down"}))
     async with AsyncFaro() as faro:
         with pytest.raises(RemoteError):
             await faro.search("anything")

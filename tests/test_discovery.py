@@ -1,5 +1,7 @@
 """Discovery tests: search / describe / browse (the intent -> skill path)."""
 
+import json
+
 import httpx
 import pytest
 import respx
@@ -34,7 +36,7 @@ _SEARCH_ENVELOPE = {
 @respx.mock
 def test_search_returns_ranked_hits_without_a_key():
     # Discovery needs no API key — Faro() with no key must work.
-    route = respx.get("https://api.askfaro.com/tools/search").mock(
+    route = respx.post("https://api.askfaro.com/tools/search").mock(
         return_value=httpx.Response(200, json=_SEARCH_ENVELOPE)
     )
     hits = Faro().search("transcribe audio")
@@ -44,8 +46,23 @@ def test_search_returns_ranked_hits_without_a_key():
 
 
 @respx.mock
+def test_search_falls_back_to_get_on_old_servers():
+    # A server that predates POST /tools/search answers 405; the client must
+    # transparently retry as GET with the same arguments.
+    respx.post("https://api.askfaro.com/tools/search").mock(
+        return_value=httpx.Response(405)
+    )
+    get_route = respx.get("https://api.askfaro.com/tools/search").mock(
+        return_value=httpx.Response(200, json=_SEARCH_ENVELOPE)
+    )
+    hits = Faro().search("transcribe audio")
+    assert get_route.called
+    assert len(hits) == 2
+
+
+@respx.mock
 def test_search_hit_id_is_invokable():
-    respx.get("https://api.askfaro.com/tools/search").mock(
+    respx.post("https://api.askfaro.com/tools/search").mock(
         return_value=httpx.Response(200, json=_SEARCH_ENVELOPE)
     )
     skill, tool = Faro().search("transcribe audio")
@@ -58,14 +75,14 @@ def test_search_hit_id_is_invokable():
 
 @respx.mock
 def test_search_passes_limit_and_category():
-    route = respx.get("https://api.askfaro.com/tools/search").mock(
+    route = respx.post("https://api.askfaro.com/tools/search").mock(
         return_value=httpx.Response(200, json={"items": []})
     )
     Faro().search("weather", limit=3, category="data")
-    req = route.calls.last.request
-    assert req.url.params["q"] == "weather"
-    assert req.url.params["limit"] == "3"
-    assert req.url.params["category"] == "data"
+    body = json.loads(route.calls.last.request.content)
+    assert body["q"] == "weather"
+    assert body["limit"] == 3
+    assert body["category"] == "data"
 
 
 def test_search_empty_query_raises():
@@ -258,7 +275,7 @@ def test_browse_invalid_format_raises():
 
 @respx.mock
 def test_discovery_sends_bearer_when_key_present():
-    route = respx.get("https://api.askfaro.com/tools/search").mock(
+    route = respx.post("https://api.askfaro.com/tools/search").mock(
         return_value=httpx.Response(200, json={"items": []})
     )
     Faro(api_key="faro_test").search("x")
@@ -269,7 +286,7 @@ def test_discovery_sends_bearer_when_key_present():
 def test_discovery_http_error_raises():
     from askfaro import RemoteError
 
-    respx.get("https://api.askfaro.com/tools/search").mock(
+    respx.post("https://api.askfaro.com/tools/search").mock(
         return_value=httpx.Response(503, json={"detail": "down"})
     )
     with pytest.raises(RemoteError):
